@@ -1,0 +1,15 @@
+<html>
+  <head>
+    <title>CodeDay Seattle Playlist</title>
+  </head>
+  <body style="text-align:center">
+    {% if track is defined %}
+      <h1>Current Track</h1>
+      <br/>
+      <h2>{{ track.track }}</h2>
+      <h3>{{ track.artist }}</h3>
+    {% else %}
+      <h1>Music Not Currently Playing :-(</h1>
+    {% endif %}
+  </body>
+</html>

@@ -1,0 +1,1 @@
+Put in this folder special files that should only be started by an admin, and should not be part of the main database

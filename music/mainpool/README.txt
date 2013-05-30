@@ -1,0 +1,1 @@
+Put music in this folder before running organize.py on it into "music/main"

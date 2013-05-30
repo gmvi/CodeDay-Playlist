@@ -1,3 +1,14 @@
+## Mine
+vlc.py
+vlcclient.py
+mutagen
+music/*
+music/*/*
+!music/mainpool
+!music/special
+!music/*/README.txt
+
+## Auto
 *.py[cod]
 
 # C extensions
