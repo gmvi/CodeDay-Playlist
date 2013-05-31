@@ -11,7 +11,7 @@ SONG_BUFFER_SIZE = 30
 #VLC_LOC = "C:\\Program Files\\videolan\\vlc"
 TIME_CUTOFF_MS = 3000
 LOOP_PERIOD_SEC = 2
-DEBUG = True
+DEBUG = False
 
 v = None
 db = None
@@ -113,8 +113,14 @@ def main():
     music_thread.start()
     if not DEBUG:
         cmd = None
-        while cmd != "quit":
+        while True:
             cmd = raw_input()
+            if cmd == "next":
+                v.set_pos(.98) #shitty hack
+            elif cmd == "quit":
+                break
+            else:
+                print "Nope, the only commands are 'next' and 'quit'."
         print "shutting down..."
         shut_down()
 

@@ -1,4 +1,5 @@
 from mutagen.mp3 import MP3
+from mutagen.easymp4 import EasyMP4
 from mutagen.easyid3 import EasyID3
 
 print "Quick ID3 Tag Fixer by George Matter VI"
@@ -19,8 +20,8 @@ a = os.listdir(src)
 for i in a:
     if os.path.splitext(a)[1] == '.mp3':
         audio = MP3(src+a, ID3=EasyID3)
-    elif os.path.splitext(a)[1] in ['.m4a', '.mp4']:
-        
+    elif os.path.splitext(a)[1] in ['.m4a']:
+        audio = EasyMP4(src+a)
     print a
     if deep or 'title' not in audio:
         title_ = raw_input('title: ')
