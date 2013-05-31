@@ -1,7 +1,10 @@
 ## Mine
+
+# modules
 vlc.py
-vlcclient.py
 mutagen
+
+# db stuff
 music/*
 music/*/*
 !music/mainpool
