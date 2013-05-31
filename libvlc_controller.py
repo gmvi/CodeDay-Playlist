@@ -1,15 +1,36 @@
-import vlc
+import vlc, os
 
 class VLCController():
-    list_player = vlc.MediaListPlayer()
-    media_player = vlc.MediaPlayer()
-    list_player.set_media_player(media_player)
-    media_list = vlc.MediaList()
-    list_player.set_media_list(media_list)
+    def __init__(self):
+        self.list_player = vlc.MediaListPlayer()
+        self.media_player = vlc.MediaPlayer()
+        self.list_player.set_media_player(self.media_player)
+        self.media_list = vlc.MediaList()
+        self.list_player.set_media_list(self.media_list)
+
+    def __getitem__(self, i):
+        return self.get(i)
+
+    def __contains__(self, value):
+        pass #TODO
+
+    def get(self, i):
+        if i < 0 or i >= len(self.media_list):
+            raise IndexError("playlist index out of range")
+        else:
+            return self.media_list.item_at_index(i).get_mrl()
+
+    def pop(self, i):
+        if i < 0 or i >= len(self.media_list):
+            raise IndexError("playlist index out of range")
+        else:
+            mrl = self.media_list.item_at_index(i).get_mrl()
+            self.media_list.remove_index(i)
+            return mrl
 
     def add(self, path):
-        self.media_list.add_media(path)
-        #TODO: check that media is real
+        if os.path.exists(path):
+            self.media_list.add_media(path)
 
     def play(self):
         self.list_player.play()
@@ -18,6 +39,7 @@ class VLCController():
         self.list_player.pause()
 
     def next(self):
+        #TODO: check if player has a next
         self.list_player.next()
 
     def play_last(self):
