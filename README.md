@@ -24,6 +24,8 @@ This software is intended to be put on a flashdrive to house a music database fo
 6. The web interface will be at your LAN IP address on port 80.
 7. (optional) You can create other libraries as /music/*, or point program.py to your another library's root node, provided it follows a &lt;root&gt;/&lt;artist&gt;/&lt;album&gt;/&lt;track&gt; structure. Any filename formatting scheme is fine, provided metadata is present, and artistless files in the root directory or files directly under artist folders will be handled properly as well.
 
+**Please Note: if you run program.py in IDLE, you must set DEBUG = True, otherwise, raw_input will block flask's logging to stderr, blocking requests**
+
 ### Supported file formats ##
 
 Currently:  

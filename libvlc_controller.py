@@ -1,4 +1,5 @@
 import vlc, os
+from urllib2 import unquote
 
 class VLCController():
     def __init__(self):
@@ -32,6 +33,12 @@ class VLCController():
         if os.path.exists(path):
             self.media_list.add_media(path)
 
+    def get_media_path(self):
+        path = self.media_player.get_media().get_mrl()
+        if path.startswith("file:///"):
+            path = path[8:]
+        return unquote(path)
+
     def play(self):
         self.list_player.play()
 
@@ -48,6 +55,9 @@ class VLCController():
             self.list_player.play_item_at_index(l-1)
         else:
             raise ValueError("No last item to play")
+
+    def stop(self):
+        self.list_player.stop()
 
     def get_pos(self):
         return self.media_player.get_position()
