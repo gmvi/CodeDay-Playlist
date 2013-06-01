@@ -169,12 +169,16 @@ def main():
             cmd = raw_input()
             if cmd == "next":
                 v.set_pos(.98) #shitty hack
+            elif cmd == "pause":
+                v.pause()
+            elif cmd == "play":
+                v.play()
             elif cmd == "quit":
                 break
             elif cmd == "debug":
                 return
             else:
-                print "Nope, the only commands are 'next' and 'quit'."
+                print "Not a command."
         print "shutting down..."
         shut_down()
 
