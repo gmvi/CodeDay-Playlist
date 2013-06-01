@@ -1,9 +1,13 @@
-error = False
-from mutagen.easyid3 import EasyID3
-from mutagen.easymp4 import EasyMP4
-from mutagen.id3 import ID3NoHeaderError
-from mutagen.mp3 import MP3
 import os, glob, shutil
+from mutagen.easyid3 import EasyID3
+from mutagen.mp3 import MP3
+EasyMP3 = lambda filename: MP3(filename, ID3=EasyID3)
+from mutagen.easymp4 import EasyMP4
+from mutagen.oggvorbis import OggVorbis
+from mutagen.id3 import ID3NoHeaderError
+from mutagen.flac import FLAC
+
+error = False
 
 class FileAlreadyExistsError(Exception): pass
 class UnsupportedFileTypeError(Exception): pass
@@ -16,10 +20,10 @@ PATTERNS = [("music/2ampool", "music/2am"),
 
 ## /SETTINGS
 
-EasyMP3 = lambda filename: MP3(filename, ID3=EasyID3)
-
 FORMATS = {".mp3" : EasyMP3,
-           ".m4a" : EasyMP4}
+           ".m4a" : EasyMP4,
+           ".ogg" : OggVorbis,
+           ".flac" : FLAC}
 
 trackFormat = lambda number: "0"*(len(number)==1) + number
 

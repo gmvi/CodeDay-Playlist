@@ -1,15 +1,19 @@
 import os
 from mutagen.easyid3 import EasyID3
-from mutagen.easymp4 import EasyMP4
-from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
+EasyMP3 = lambda filename: MP3(filename, ID3=EasyID3)
+from mutagen.easymp4 import EasyMP4
+from mutagen.oggvorbis import OggVorbis
+from mutagen.id3 import ID3NoHeaderError
+from mutagen.flac import FLAC
 from random import choice
 
-EasyMP3 = lambda filename: MP3(filename, ID3=EasyID3)
 class UnsupportedFileTypeError(Exception): pass
 
-FORMATS = {".mp3" : EasyMP3,
-           ".m4a" : EasyMP4}
+FORMATS = {".mp3"  : EasyMP3,
+           ".m4a"  : EasyMP4,
+           ".ogg"  : OggVorbis,
+           ".flac" : FLAC}
 
 def get_info(audio, info):
     if audio.has_key(info):
@@ -84,7 +88,7 @@ class bufferlist(list):
     def extend(iterable): raise Exception()
 
     def __init__(self, size):
-	list.__init__(self)
+        list.__init__(self)
         if type(size) != int:
             raise TypeError("size must be int")
         self.buffer_size = size
