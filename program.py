@@ -172,8 +172,6 @@ def main():
             args = tokens[1] if len(tokens) == 2 else ""
             if cmd == "quit":
                 break
-            elif cmd == "debug":
-                return
             elif cmd in commands:
                 p = commands[cmd](v, args)
                 if p: print p
