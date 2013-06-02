@@ -173,6 +173,15 @@ def main():
                 v.pause()
             elif cmd == "play":
                 v.play()
+            elif cmd.startswith("vol "):
+                try:
+                    x = int(cmd[4:])
+                    if x >= 0 and x <= 200:
+                        v.media_player.audio_set_volume(x)
+                        continue
+                except ValueError:
+                    pass
+                print "Value Error"
             elif cmd == "quit":
                 break
             elif cmd == "debug":
