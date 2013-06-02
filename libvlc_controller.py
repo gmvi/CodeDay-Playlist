@@ -20,6 +20,7 @@ class VLCController():
             raise IndexError("playlist index out of range")
         else:
             return self.media_list.item_at_index(i).get_mrl()
+        #TODO support -i
 
     def pop(self, i):
         if i < 0 or i >= len(self.media_list):
@@ -48,6 +49,10 @@ class VLCController():
     def next(self):
         #TODO: check if player has a next
         self.list_player.next()
+
+    def previous(self):
+        #TODO: check if player has a previous
+        self.list_player.previous()
 
     def play_last(self):
         l = len(self.media_list)

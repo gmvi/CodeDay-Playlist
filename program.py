@@ -8,6 +8,7 @@ from time import sleep
 from vlc import State
 from libvlc_controller import VLCController
 import webpage
+from commands import commands
 from util import FORMATS, Artist, Track, bufferlist
 
 ## ADJUSTABLE CONSTANTS
@@ -166,28 +167,18 @@ def main():
     if not DEBUG:
         cmd = None
         while True:
-            cmd = raw_input()
-            if cmd == "next":
-                v.set_pos(.98) #shitty hack
-            elif cmd == "pause":
-                v.pause()
-            elif cmd == "play":
-                v.play()
-            elif cmd.startswith("vol "):
-                try:
-                    x = int(cmd[4:])
-                    if x >= 0 and x <= 200:
-                        v.media_player.audio_set_volume(x)
-                        continue
-                except ValueError:
-                    pass
-                print "Value Error"
-            elif cmd == "quit":
+            tokens = raw_input().split(" ", 1)
+            cmd = tokens[0]
+            args = tokens[1] if len(tokens) == 2 else ""
+            if cmd == "quit":
                 break
             elif cmd == "debug":
                 return
+            elif cmd in commands:
+                p = commands[cmd](v, args)
+                if p: print p
             else:
-                print "Not a command."
+                print "'%s' is not a command." % cmd
         print "shutting down..."
         shut_down()
 
