@@ -29,7 +29,7 @@ def pause():
 
 @cmd
 def next():
-    v.set_pos(.98) #shitty hack
+    v.next()
 
 @cmd
 def vol():

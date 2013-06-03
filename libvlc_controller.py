@@ -1,13 +1,23 @@
 import vlc, os
 from urllib2 import unquote
+from threading import Thread
+
+SOUT_MP3  = '#transcode{acodec=mp3,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_OGG  = '#transcode{acodec=vorbis,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_MP4A = '#transcode{acodec=mp4a,ab=128,channels=2,samplerate=44100}:http{mux=mp4,dst=:8090/stream}'
+SOUT_FLAC = '#transcode{acodec=vorbis,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
 
 class VLCController():
-    def __init__(self):
+    def __init__(self, broadcast = False):
         self.list_player = vlc.MediaListPlayer()
         self.media_player = vlc.MediaPlayer()
         self.list_player.set_media_player(self.media_player)
         self.media_list = vlc.MediaList()
         self.list_player.set_media_list(self.media_list)
+        self.instance = vlc._default_instance
+        if broadcast:
+            self.instance.vlm_add_broadcast('main', None, SOUT_MP3, 0, None, True, False)
+            #self.thread = Thread(target=self.run)
 
     def __getitem__(self, i):
         return self.get(i)
@@ -33,6 +43,7 @@ class VLCController():
     def add(self, path):
         if os.path.exists(path):
             self.media_list.add_media(path)
+            self.instance.vlm_add_input('main', path)
 
     def get_media_path(self):
         path = self.media_player.get_media().get_mrl()
@@ -42,13 +53,15 @@ class VLCController():
 
     def play(self):
         self.list_player.play()
+        self.instance.vlm_play_media()
 
     def pause(self):
         self.list_player.pause()
+        self.instance.vlm_pause_media()
 
     def next(self):
         #TODO: check if player has a next
-        self.list_player.next()
+        self.media_player.set_pos(.98)
 
     def previous(self):
         #TODO: check if player has a previous
@@ -63,7 +76,7 @@ class VLCController():
 
     def stop(self):
         self.list_player.stop()
-
+        
     def get_pos(self):
         return self.media_player.get_position()
 
