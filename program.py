@@ -7,9 +7,9 @@ from time import sleep
 
 from vlc import State
 from libvlc_controller import VLCController
-import webpage
+import webpage, database
 from commands import commands
-from util import FORMATS, Artist, Track, bufferlist
+from util import FORMATS, bufferlist
 
 ## ADJUSTABLE CONSTANTS
 ARTIST_BUFFER_SIZE = 4 # min playlist space betw tracks by same artist.
@@ -21,7 +21,8 @@ DEBUG = False # enable DEBUG to disable the standard command line controls,
 SHUTDOWN_KEY = "i've made a terrible mistake"
 
 v = None # VLCConstroller instance
-db = None # Database
+session = None # Database read/write client
+artists = [] # list of database.Artist objects
 db_path = None # path to the songs in the database
 music_thread = None # thread controlling the queuing system
 webpage_thread = None
@@ -80,36 +81,56 @@ def get_all(path):
     return ret
 
 def load_database(path):
-    global db
-    db = []
+    global session, artists
+    print "Reading database."
+    session = database.connect(path)
+    artists = session.query(database.Artist).all()
+    if artists:
+        return
+    print "Builing database. This may take a while."
     unknown = []
+    unknown_artist = database.Artist(path) # this is bad practice
+    unknown_artist.name = "Unknown"
     for direc in os.listdir(path):
         node = os.path.join(path, direc)
         if os.path.isfile(node):
-            unknown.append(Track(node))
+            ext = os.path.splitext(node)[1]
+            if ext in FORMATS:
+                unknown.append(database.Track(node))
         else:
-            artist = Artist(direc)
+            artist = database.Artist(node)
+            artist.name = direc # fix this later
+            session.add(artist)
+            artists.append(artist)
             for track in get_all(node):
                 try:
-                    artist.add(Track(track))
+                    artist.add(database.Track(track))
                 except IOError:
                     pass
-            db.append(artist)
-    unknown_artist = Artist("")
-    for track in unknown:
-        unknown_artist.add(track)
-    db.append(unknown_artist)
+    if unknown:
+        for track in unknown:
+            unknown_artist.add(track)
+        session.add(unknown_artist)
+        artists.append(unknown_artist)
+    session.commit()
 
 def choose():
     global artist_buffer, song_buffer
+    artists_ = artists[:]
+    for artist in artist_buffer: #shorter(artist_buffer, artists_)
+        try: artists_.remove(artist)
+        except ValueError: pass
+    if not artists_: return None
     artist = None
-    while not artist or artist in artist_buffer:
-        artist = choice(db)
+    while not artist:
+        artist = choice(artists_)
         songs = artist.songs[:]
         for song in songs[:]:
             if song in song_buffer:
                 songs.remove(song)
         if len(songs) == 0:
+            artists_.remove(artist)
+            if not artists_: return None
             artist = None
     artist_buffer.append(artist)
     song = choice(songs)
@@ -118,18 +139,36 @@ def choose():
 
 class MusicThread():
     RUNNING = True
-    def __init__(self):
+    def __init__(self, db_path):
         self.RUNNING = True
+        self.db_built = False
+        self.db_path = db_path
         self.thread = threading.Thread(target=self)
+    def choose(self):
+        song = choose()
+        if not song:
+            print "Not enough artists or songs! Lower your " + \
+                  "MIN_BETW_REPEAT settings"
+            print "Resetting constraints."
+            del artist_buffer[:]
+            del song_buffer[:]
+            song = choose()
+        v.add(song.path)
     def __call__(self):
+        load_database(self.db_path)
+        self.db_built = True
+        if not artists:
+            print "No artists!"
+            shut_down()
+            return
         if v.media_player.get_state() != State.Playing:
-            v.add(choose().path)
+            self.choose()
             v.play()
         while v.media_player.get_state() != State.Playing:
             pass
         while self.RUNNING:
             if should_add_another():
-                v.add(choose().path)
+                self.choose()
                 sleep(ceil(TIME_CUTOFF_MS/1000.0))
                 if v.media_player.get_state() != State.Playing:
                     v.play_last()
@@ -140,15 +179,16 @@ class MusicThread():
         self.RUNNING = False
 
 def shut_down():
-    global v
-    music_thread.stop()
+    try:
+        music_thread.stop()
+    except Exception as e:
+        print e
     try:
         urllib2.urlopen("http://192.168.0.6/shutdown",
                         data=urllib.urlencode([('key', SHUTDOWN_KEY)]))
-    except urllib2.HTTPError:
-        pass
+    except Exception as e:
+        print e
     v.stop()
-    del v
 
 def start():
     webpage.run()
@@ -157,13 +197,13 @@ def main():
     global music_thread, webpage_thread, db_path
     load_vlc()
     db_path = raw_input("music: ")
-    print "Constructing Database..."
-    load_database(db_path)
-    music_thread = MusicThread()
+    music_thread = MusicThread(db_path)
     music_thread.start()
     webpage.attatch_get_track(get_track)
     webpage_thread = threading.Thread(target=start)
     webpage_thread.start()
+    while not music_thread.db_built:
+        sleep(1)
     if not DEBUG:
         cmd = None
         while True:
