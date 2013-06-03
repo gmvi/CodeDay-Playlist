@@ -9,12 +9,13 @@ organize.py and fix.py require [Mutagen](https://code.google.com/p/mutagen/)
 program.py requires:
 * [Flask](http://flask.pocoo.org/)
 * [Mutagen](https://code.google.com/p/mutagen/)
+* [SQLAlchemy] (http://www.sqlalchemy.org/)
 * [VLC](http://www.videolan.org/vlc/) (realy just libvlc)
 * The [python bindings](http://git.videolan.org/?p=vlc/bindings/python.git;a=tree) for libvlc
 
 ## Usage ##
 
-This software is intended to be put on a flashdrive to house a music database for Seattle [CodeDay](CodeDay.org) hackathons. The following would get you started using it the way I do:
+This software is intended to be put on a flashdrive to house a music database for Seattle [CodeDay](http://codeday.org) hackathons. The following would get you started using it the way I do:
 
 1. (optional) Dump the project on a clean flashdrive large enough to house a music library.
 2. Dump music into /music/mainpool.
