@@ -15,6 +15,7 @@ class VLCController():
         self.media_list = vlc.MediaList()
         self.list_player.set_media_list(self.media_list)
         self.instance = vlc._default_instance
+        self.disable_stream_next = False
         if broadcast:
             self.instance.vlm_add_broadcast('main', None, SOUT_MP3, 0, None, True, False)
             #self.thread = Thread(target=self.run)
@@ -53,17 +54,20 @@ class VLCController():
 
     def play(self):
         self.list_player.play()
-        self.instance.vlm_play_media()
+        self.instance.vlm_play_media('main')
 
     def pause(self):
         self.list_player.pause()
-        self.instance.vlm_pause_media()
+        self.instance.vlm_pause_media('main')
 
     def next(self):
-        #TODO: check if player has a next
+        #TODO: check if player has a next, make this better
+        if !self.disable_stream_next:
+            self.instance.vlm_seek_media(.98)
         self.media_player.set_pos(.98)
 
     def previous(self):
+        self.disable_stream_next = True
         #TODO: check if player has a previous
         self.list_player.previous()
 
@@ -76,6 +80,9 @@ class VLCController():
 
     def stop(self):
         self.list_player.stop()
+        
+    def kill_stream(self):
+        self.instance.vlm_release()
         
     def get_pos(self):
         return self.media_player.get_position()
