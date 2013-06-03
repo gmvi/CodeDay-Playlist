@@ -3,6 +3,7 @@
 # modules
 vlc.py
 mutagen
+sqlalchemy
 
 # db stuff
 music/*
