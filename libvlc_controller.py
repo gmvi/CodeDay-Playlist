@@ -62,8 +62,8 @@ class VLCController():
 
     def next(self):
         #TODO: check if player has a next, make this better
-        if !self.disable_stream_next:
-            self.instance.vlm_seek_media(.98)
+        if not self.disable_stream_next:
+            self.instance.vlm_seek_media('main', .98)
         self.media_player.set_pos(.98)
 
     def previous(self):
