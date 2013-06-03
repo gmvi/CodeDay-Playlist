@@ -31,7 +31,7 @@ song_buffer = bufferlist(SONG_BUFFER_SIZE)
 
 def load_vlc():
     global v
-    v = VLCController()
+    v = VLCController(True)
 
 def should_add_another():
     if get_remaining() != 0:
@@ -186,6 +186,10 @@ def shut_down():
     try:
         urllib2.urlopen("http://192.168.0.6/shutdown",
                         data=urllib.urlencode([('key', SHUTDOWN_KEY)]))
+    except Exception as e:
+        print e
+    try:
+        v.kill_stream()
     except Exception as e:
         print e
     v.stop()
