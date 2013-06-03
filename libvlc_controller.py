@@ -2,29 +2,43 @@ import vlc, os
 from urllib2 import unquote
 from threading import Thread
 
-SOUT_MP3  = '#transcode{acodec=mp3,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
-SOUT_OGG  = '#transcode{acodec=vorbis,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
-SOUT_MP4A = '#transcode{acodec=mp4a,ab=128,channels=2,samplerate=44100}:http{mux=mp4,dst=:8090/stream}'
-SOUT_FLAC = '#transcode{acodec=vorbis,ab=128,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_MP3  = '#transcode{acodec=mp3,ab=192,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_OGG  = '#transcode{acodec=vorbis,ab=192,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_M4A = '#transcode{acodec=mp3,ab=192,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+SOUT_FLAC = '#transcode{acodec=vorbis,ab=192,channels=2,samplerate=44100}:http{mux=ogg,dst=:8090/stream}'
+
+SOUTS = {'.mp3'  : SOUT_MP3,
+         '.ogg'  : SOUT_OGG,
+         '.m4a'  : SOUT_M4A,
+         '.flac' : SOUT_FLAC}
+
 
 class VLCController():
     def __init__(self, broadcast = False):
+        self.broadcast = broadcast
         self.list_player = vlc.MediaListPlayer()
         self.media_player = vlc.MediaPlayer()
         self.list_player.set_media_player(self.media_player)
         self.media_list = vlc.MediaList()
         self.list_player.set_media_list(self.media_list)
         self.instance = vlc._default_instance
-        self.disable_stream_next = False
-        if broadcast:
-            self.instance.vlm_add_broadcast('main', None, SOUT_MP3, 0, None, True, False)
-            #self.thread = Thread(target=self.run)
+        self.instance.vlm_add_broadcast('main', None, SOUT_MP3,
+                                        0, None, True, False)
+        em = self.media_player.event_manager()
+        em.event_attach(vlc.EventType.MediaPlayerMediaChanged,
+                        self.reset_broadcast)
+
+    def reset_broadcast(self, event):
+        self.instance.vlm_stop_media('main')
+        if self.broadcast:
+            media_path = self.get_media_path()
+            self.instance.vlm_change_media('main', media_path,
+                                           SOUTS[os.path.split(media_path)[1]],
+                                           0, None, True, False)
+            self.instance.vlm_play_media('main')
 
     def __getitem__(self, i):
         return self.get(i)
-
-    def __contains__(self, value):
-        pass #TODO
 
     def get(self, i):
         if i < 0 or i >= len(self.media_list):
@@ -44,7 +58,6 @@ class VLCController():
     def add(self, path):
         if os.path.exists(path):
             self.media_list.add_media(path)
-            self.instance.vlm_add_input('main', path)
 
     def get_media_path(self):
         path = self.media_player.get_media().get_mrl()
@@ -54,20 +67,19 @@ class VLCController():
 
     def play(self):
         self.list_player.play()
-        self.instance.vlm_play_media('main')
+        if self.broadcast:
+            self.instance.vlm_play_media('main')
 
     def pause(self):
         self.list_player.pause()
-        self.instance.vlm_pause_media('main')
+        if self.broadcast:
+            self.instance.vlm_pause_media('main')
 
     def next(self):
         #TODO: check if player has a next, make this better
-        if not self.disable_stream_next:
-            self.instance.vlm_seek_media('main', .98)
-        self.media_player.set_pos(.98)
+        self.media_player.set_position(.98)
 
     def previous(self):
-        self.disable_stream_next = True
         #TODO: check if player has a previous
         self.list_player.previous()
 
@@ -80,16 +92,21 @@ class VLCController():
 
     def stop(self):
         self.list_player.stop()
+        self.stop_stream()
         
-    def kill_stream(self):
-        self.instance.vlm_release()
+    def stop_stream(self):
+        self.instance.vlm_stop_media('main')
+
+    # def broadcast_on, broadcast_off ?
         
     def get_pos(self):
         return self.media_player.get_position()
 
     def set_pos(self, num):
         if type(num) is float and num >= 0.0 and num <= 1.0:
-            if num > .99: #unnecessary?
-                num = .99
+            if num > .98: #unnecessary?
+                num = .98
             self.media_player.set_position(num)
+            if self.broadcast:
+                self.instance.vlm_seek_media('main', num)
 
