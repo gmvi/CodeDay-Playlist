@@ -163,10 +163,13 @@ class MusicThread():
             return
         if v.media_player.get_state() != State.Playing:
             self.choose()
+            v.set_broadcast()
             v.play()
         while v.media_player.get_state() != State.Playing:
             pass
         while self.RUNNING:
+            if v.should_reset_broadcast():
+                v.reset_broadcast()
             if should_add_another():
                 self.choose()
                 sleep(ceil(TIME_CUTOFF_MS/1000.0))
@@ -189,13 +192,10 @@ def shut_down():
     except Exception as e:
         print e
     try:
-        v.kill_stream()
+        v.stop_stream()
     except Exception as e:
         print e
     v.stop()
-
-def start():
-    webpage.run()
 
 def main():
     global music_thread, webpage_thread, db_path
@@ -204,7 +204,7 @@ def main():
     music_thread = MusicThread(db_path)
     music_thread.start()
     webpage.attatch_get_track(get_track)
-    webpage_thread = threading.Thread(target=start)
+    webpage_thread = threading.Thread(target=webpage.run)
     webpage_thread.start()
     while not music_thread.db_built:
         sleep(1)
