@@ -2,14 +2,14 @@
 
 # modules
 modules/*
-!modules/README.txt
+!modules/README.md
 
 # db stuff
 music/*
 music/*/*
 !music/mainpool
 !music/special
-!music/*/README.txt
+!music/*/README.md
 
 ## Auto
 *.py[cod]
