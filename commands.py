@@ -29,7 +29,7 @@ def pause():
 
 @cmd
 def next():
-    v.next()
+    v.media_player.set_position(.985)
 
 @cmd
 def vol():

@@ -1,15 +1,50 @@
 <html>
   <head>
     <title>CodeDay Seattle Playlist</title>
+    <style>
+    body
+    { text-align:center;
+    }
+    #controls *
+    { text-size: 18pt;
+    }
+    </style>
+    <script type="text/javascript" src="/static/socket.io.min.js"></script>
+    <script type="text/javascript" src="/static/jquery.min.js"></script>
+    <script type="text/javascript">
+    $(document).ready(function()
+    { socket = io.connect('/track');
+      socket.on('error', function(message)
+      { console.log("Error: " + message);
+      });
+      f = function(data)
+      { if (data == 'no track')
+        { console.log(data);
+        }
+        else
+        { track = JSON.parse(data);
+          console.log(track);
+          $("#track").text(track.track);
+          $("#artist").text(track.artist);
+        }
+      }
+      socket.on('track', f);
+      socket.on('update', f);
+      socket.emit('request', 'track');
+    });
+    </script>
   </head>
-  <body style="text-align:center">
-    {% if track is defined %}
-      <h1>Current Track</h1>
+  <body>
+    <div id=info>
+      <h1 id=heading>Current Track</h1>
       <br/>
-      <h2>{{ track.track }}</h2>
-      <h3>{{ track.artist }}</h3>
-    {% else %}
-      <h1>Music Not Currently Playing :-(</h1>
-    {% endif %}
+      <h2 id=track></h2>
+      <h3 id=artist></h3>
+    </div>
+    <div id=controls>
+      <button onclick="socket.emit('command','previous');">&lt;&lt;</button>
+      <button onclick="socket.emit('command','pause');">&gt;</button>
+      <button onclick="socket.emit('command','next');">&gt;&gt;</button>
+    </div>
   </body>
 </html>

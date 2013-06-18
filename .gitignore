@@ -1,9 +1,8 @@
 ## Mine
 
 # modules
-vlc.py
-mutagen
-sqlalchemy
+modules/*
+!modules/README.txt
 
 # db stuff
 music/*

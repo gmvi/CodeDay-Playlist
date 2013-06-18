@@ -1,13 +1,44 @@
-from socket import gethostbyname, gethostname
+import sys, json, socket
+if 'modules' not in sys.path: sys.path.insert(0, 'modules')
+from gevent import monkey
+from socketio.server import SocketIOServer
+from socketio.namespace import BaseNamespace
+from socketio.mixins import BroadcastMixin
+from socketio import socketio_manage
 from flask import Flask, request, render_template, abort
 import jinja2
-app = Flask(__name__) # the app
-process = None # the process to handle app.run()
-get_track = None # the function to get the current track
+from util import Track, Socket, TrackInfoNamespace
+
+#monkey.patch_all()
+app = Flask(__name__)
+app.debug = True
+sock = Socket()
+SOCK_PORT = 2148
+DEBUG = False
+
+track = None
+#get_track = lambda: Track() # the function to get the current track
 SHUTDOWN_KEY = "i've made a terrible mistake"
 
-# In case the process gets out of hand.
-# Will require a hard-coded password at release.
+# Templates
+templates = {}
+def reload_templates():
+    global templates
+    templates = {}
+    templates['track'] = jinja2.Template(file('templates/track.html').read())
+reload_templates()
+
+# Socket endpoint
+@app.route('/socket.io/<path:rest>')
+def push_stream(rest):
+    try:
+        socketio_manage(request.environ, {'/track': TrackInfoNamespace}, request)
+    except:
+        app.logger.error("Exception while handling socketio connection",
+                         exc_info=True)
+    return ""
+
+# To shut down the server.
 @app.route('/shutdown', methods=['POST'])
 def shutdown():
     if str(request.form['key'] == SHUTDOWN_KEY):
@@ -18,21 +49,42 @@ def shutdown():
     else:
         abort(405)
 
-track_template = jinja2.Template(file('templates/track.html').read())
-
-# Main page (should be the only non-admin page)
+# Main page
 @app.route('/')
 def hello_world():
     try:
-        track = get_track()
-        return track_template.render(track=track)
+        return file('templates/track.html').read()
     except Exception as e:
         return `e`
 
-def attatch_get_track(func):
-    global get_track
-    get_track = func
+##def attatch_get_track(func):
+##    global get_track
+##    get_track = func
+
+def on_message(message):
+    if DEBUG: print "Message: %s" % message.strip()
+    j = json.loads(message)
+    if j['type'] == 'update':
+        if DEBUG: print "Now Playing %s by %s" % (j['data']['track'],j['data']['artist'])
+        TrackInfoNamespace.update_track(j['data'])
+
+def on_connect():
+    print "connected to music player."
+
+def on_disconnect():
+    print "disconnected from music player."
+    TrackInfoNamespace.clear_track()
 
 def run():
-    ip_addr = gethostbyname(gethostname())
-    app.run(host=ip_addr, port=80)#, debug=True, use_reloader = False)
+    ip_addr = socket.gethostbyname(socket.gethostname())
+    print "connecting to music player..."
+    sock.on_connect(on_connect)
+    sock.on_disconnect(on_disconnect)
+    sock.connect('localhost', SOCK_PORT, on_message)
+    TrackInfoNamespace.attatch_control(sock)
+    server = SocketIOServer((ip_addr, 80), app, resource="socket.io")
+    print "running on %s" % ip_addr
+    server.serve_forever()
+
+if __name__ == "__main__":
+    run()

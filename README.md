@@ -8,8 +8,9 @@ organize.py and fix.py require [Mutagen](https://code.google.com/p/mutagen/)
 
 program.py requires:
 * [Flask](http://flask.pocoo.org/)
-* [Mutagen](https://code.google.com/p/mutagen/)
+* [Gevent-SocketIO](https://github.com/abourget/gevent-socketio)
 * [SQLAlchemy] (http://www.sqlalchemy.org/)
+* [Mutagen](https://code.google.com/p/mutagen/)
 * [VLC](http://www.videolan.org/vlc/) (realy just libvlc)
 * The [python bindings](http://git.videolan.org/?p=vlc/bindings/python.git;a=tree) for libvlc
 
@@ -24,8 +25,9 @@ This software is intended to be put on a flashdrive to house a music database fo
 5. Run program.py, and point it to /music/main. It will take a while to build the database.
 6. The web interface will be at your LAN IP address on port 80.
 7. (optional) You can create other libraries as /music/*, or point program.py to your another library's root node, provided it follows a &lt;root&gt;/&lt;artist&gt;/&lt;album&gt;/&lt;track&gt; structure. Any filename formatting scheme is fine, provided metadata is present, and (artistless) files in the root directory or files directly under artist folders will be handled properly as well.
+*. At this time you have to physically delete the library's cdp.db file and restart the program if you want it to recognize filesystem changes.
 
-**Please Note: if you run program.py in IDLE, you should set DEBUG = True, otherwise, raw_input will block flask's logging to stderr, blocking requests**
+**Please Note: if you run program.py in IDLE, you should set DEBUG = True or ctrl-c out after loading the database (same effect), otherwise, raw_input will block flask's logging to stderr, blocking requests**
 
 ### Supported file formats ##
 * mp3
