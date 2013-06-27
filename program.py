@@ -7,7 +7,8 @@ from time import sleep
 
 from vlc import State, EventType, callbackmethod
 from libvlc_controller import VLCController
-import webpage, database
+import webpage
+from database import DBController
 from commands import commands
 from util import FORMATS, bufferlist, Socket, get_all
 
@@ -22,7 +23,6 @@ SHUTDOWN_KEY = "i've made a terrible mistake"
 
 v = None # VLCConstroller instance
 session = None # Database read/write client
-artists = [] # list of database.Artist objects
 db_path = None # path to the songs in the database
 music_thread = None # thread controlling the queuing system
 webpage_s = None
@@ -107,28 +107,7 @@ def load_database(path):
         artists.append(unknown_artist)
     session.commit()
 
-def choose():
-    global artist_buffer, song_buffer
-    artists_ = artists[:]
-    for artist in artist_buffer: #shorter(artist_buffer, artists_)
-        try: artists_.remove(artist)
-        except ValueError: pass
-    if not artists_: return None
-    artist = None
-    while not artist:
-        artist = choice(artists_)
-        songs = artist.songs[:]
-        for song in songs[:]:
-            if song in song_buffer:
-                songs.remove(song)
-        if len(songs) == 0:
-            artists_.remove(artist)
-            if not artists_: return None
-            artist = None
-    artist_buffer.append(artist)
-    song = choice(songs)
-    song_buffer.append(song)
-    return song
+def choose(artists):
 
 class MusicThread():
     RUNNING = True
@@ -143,8 +122,26 @@ class MusicThread():
         while self._add:
             sleep(.1)
         return
-    def choose(self):
-        song = choose()
+    def pick_next(self):
+        global artist_buffer, song_buffer
+        artists_ = self.db.get_artists()[:]
+        for artist in artist_buffer:
+            try: artists_.remove(artist)
+            except ValueError: pass
+        if not artists_: return None
+        artist = None
+        while not artist:
+            artist = choice(artists_)
+            songs = artist.songs[:]
+            for song in songs[:]:
+                if song in song_buffer:
+                    songs.remove(song)
+            if len(songs) == 0:
+                artists_.remove(artist)
+                if not artists_: return None
+                artist = None
+        artist_buffer.append(artist)
+        song = choice(songs)
         if not song:
             print "Not enough artists or songs! Lower your " + \
                   "MIN_BETW_REPEAT settings"
@@ -152,9 +149,11 @@ class MusicThread():
             del artist_buffer[:]
             del song_buffer[:]
             song = choose()
+        song_buffer.append(song)
         v.add(song.path)
     def __call__(self):
-        load_database(os.path.join("music", self.db_path))
+        self.db = DBController(os.path.join("music", self.db_path))
+        self.db.connect()
         self.db_built = True
         if not artists:
             print "No artists!"
@@ -173,10 +172,10 @@ class MusicThread():
                 current = v.get_media_path()
             if v.should_reset_broadcast(): v.reset_broadcast()
             if self._add:
-                self.choose()
+                self.pick_next()
                 self._add = False
             if should_add_another():
-                self.choose()
+                self.pick_next()
                 time_left = (v.media_player.get_length() - v.media_player.get_time())/1000.0
                 sleep(time_left)
                 if not v.is_playing():

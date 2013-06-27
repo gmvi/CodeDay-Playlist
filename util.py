@@ -17,6 +17,8 @@ FORMATS = {".mp3"  : EasyMP3,
            ".ogg"  : OggVorbis,
            ".flac" : FLAC}
 
+is_supported = lambda path: os.path.splitext(path)[1] in FORMATS
+
 def get_info(audio, info):
     if audio.has_key(info):
         if type(audio[info]) == bool: return audio[info]
@@ -47,11 +49,13 @@ def get_all_info(filepath):
         audio.save()
         audio = EasyID3(filepath)
     artist = get_info(audio, 'artist')
+    album_artist = get_info(audio, 'performer') or artist
     album = get_info(audio, 'album')
     title = get_info(audio, 'title')
-    return (title,
+    return (artist,
+            album_artist,
             album,
-            artist)
+            track)
 
 class Artist():
     
@@ -287,3 +291,32 @@ class TrackInfoNamespace(BroadcastNamespace):
                 self.emit('error', "no program to control")
         else:
             self.emit('error', 'not a command')
+
+## hide_arg_tooltip is a silly little thing.
+##
+## You can use hide_arg_tooltip(func) to get an object which will act like a
+## function, but will not have an argument tooltip in IDLE. The docstring will
+## still be shown, however. This is similar to how the default help and quit
+## objects work.
+##
+## You can also use it as a decorator, like this:
+##   @hide_arg_tooltip
+##   def a():
+##       """docstring"""
+##       pass
+
+def hide_arg_tooltip(func): return _function(func)
+
+class _function:
+	def __init__(self, func):
+		self.func = func
+		self.__doc__ = func.__doc__
+	def __call__(self, *args, **kwargs):
+		return self.func(*args, **kwargs)
+	def __repr__(self):
+            hex_id = hex(id(self))
+            hex_id = hex_id[:2] + hex_id[2:].upper()
+            return "<%s %s at %s>" % (self.__class__.__name__, \
+                                      self.func.__name__, hex_id)
+        def __str__(self):
+            return `self`
