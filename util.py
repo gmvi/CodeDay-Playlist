@@ -37,7 +37,7 @@ def get_all(path):
                 ret.append(node)
     return ret
 
-def get_all_info(filepath):
+def get_metadata(filepath):
     ext = os.path.splitext(filepath)[1]
     if ext not in FORMATS:
         raise UnsupportedFileTypeError()
@@ -55,7 +55,7 @@ def get_all_info(filepath):
     return (artist,
             album_artist,
             album,
-            track)
+            title)
 
 class Artist():
     

@@ -1,8 +1,8 @@
-import os, sys
-if 'modules' not in sys.path: sys.path.insert(0, 'modules')
+import os, sys, md5
+if 'modules' not in sys.path: sys.path.append('modules')
 import util
 from sqlalchemy import create_engine
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, backref
 
@@ -23,8 +23,10 @@ class Folder(Base):
 
     path = Column(String, primary_key = True)
     root = Column(Boolean)
-    folders = relationship("Folder", backref=backref('parent'))
-    files = relationship("File", backref=backref('parent'))
+    
+    parent_path = Column(String, ForeignKey('folders.path'))
+    parent = relationship("Folder", remote_side = 'Folder.path',
+                                    backref = 'children')
     hash = Column(String)
 
     def __init__(self, path, parent = None):
@@ -35,8 +37,9 @@ class Folder(Base):
             self.root = True
         self.hash = get_contents_hash(path)
 
-    @classmethod
-    def build(path, parent = None):
+    @staticmethod
+    def build(path = None, parent = None):
+        path = path or "."
         folder = Folder(path, parent)
         for node in os.listdir(path):
             node = os.path.join(path, node)
@@ -44,8 +47,7 @@ class Folder(Base):
                 node = File(node, folder)
                 folder.files.append(node)
             else:
-                node = build_folder(node, folder)
-                folder.folders.append(node)
+                node = Folder.build(node, folder)
         return folder
 
 class File(Base):
@@ -53,67 +55,79 @@ class File(Base):
 
     path = Column(String, primary_key = True)
     supported = Column(Boolean)
-    size = Colum(BigInteger)
+    size = Column(BigInteger)
     
     track = Column(String)
     album = Column(String)
     artist = Column(String)
     album_artist = Column(String)
 
-    def __init__(self, path):
+    artist_id = Column(Integer, ForeignKey("artists.id"))
+    artist_ref = relationship("Artist", backref='songs')
+    parent_path = Column(String, ForeignKey("folders.path"))
+    parent = relationship("Folder", backref = 'files')
+
+    def __init__(self, path, parent = None):
         self.path = path
+        if parent:
+            self.parent = parent
         if util.is_supported(path):
             self.supported = True
-            self.artist, self.album_artist, self.album, self.track \
-                = util.get_metadata(path)
-        else: self.supported = False
+            tags = util.get_metadata(path)
+            self.artist = tags[0]
+            self.album_artist = tags[1]
+            self.album = tags[2]
+            self.track = tags[3]
+        else:
+            self.supported = False
         self.size = os.path.getsize(self.path)
+
+    def get_dict(self):
+        return {'track' : self.track,
+                'album' : self.album,
+                'artist': self.artist}
 
 class Artist(Base):
     __tablename__ = 'artists'
 
     id = Column(Integer, primary_key = True)
     name = Column(String)
-    songs = relationship('File', backref = backref('artist_ref'))
 
     def __init__(self, name):
         self.name = name
 
-class DBController():
-    def __init__(self, path):
-        self.path = path
-        #self.connect()
+def connect(path_):
+    global root, path, session, engine
+    path = path_
+    os.chdir(path)
+    engine = create_engine('sqlite:///cdp.db')
+    session = Session(bind = engine)
+    Base.metadata.bind = engine
+    Base.metadata.create_all()
+    print "Reading database."
+    root_query = session.query(Folder).filter(Folder.root == True)
+    if root_query[:1]:
+        root = root_query[0]
+        print root
+    else:
+        Base.metadata.create_all()
+        print "Builing database. This may take a while."
+        root = Folder.build()
+        session.add(root)
+        session.commit()
+        for song in session.query(File).filter(File.supported == True):
+            artist_query = session.query(Artist)\
+                                   .filter(Artist.name == song.album_artist)
+            if artist_query[:1]:
+                artist_query[0].songs.append(song)
+            else:
+                artist = Artist(song.album_artist)
+                artist.songs.append(song)
+                session.add(artist)
+                session.commit()
+        print root
 
-    def connect():
-        os.chdir(self.path)
-        self.engine = create_engine('sqlite:///' + \
-                                    os.path.join(self.path, 'cdp.db'))
-        self.session = Session(bind = self.engine)
-        print "Reading database."
-        if 'folders' in Base.metadata.tables.keys():
-            root_query = session.query(Folder).filter(Folder.root == True)
-            if len(root) == 1:
-                self.root = root_query[0]
-            elif len(root) > 1: raise MultipleRootError()
-            else: raise NoRootError()
-        else:
-            print "Builing database. This may take a while."
-            Base.metadata.create_all(self.engine)
-            self.root = Folder.build(path)
-            session.add(self.root)
-            session.commit()
-            for song in session.query(File).filter(File.supported == True):
-                artist_query = session.query(Artist)\
-                                      .filter(Artist.name==song.album_artist)
-                if artist_query:
-                    artist_query[0].songs.append(song)
-                else:
-                    artist = Artist(track.album_artist)
-                    artist.songs.append(song)
-                    session.add(artist)
-                    session.commit()
-
-    def get_artists(self):
-        return session.query(Artist)
+def get_artists():
+    return session.query(Artist)
 
 ## TODO: stuff to scan for filesystem changes

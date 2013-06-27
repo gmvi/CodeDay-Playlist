@@ -1,14 +1,13 @@
 import sys, os, threading, socket, urllib, urllib2, json
-sys.path.insert(0, "modules")
-base = os.path.abspath(os.path.curdir)
+if "modules" not in sys.path: sys.path.append("modules")
+base = os.path.abspath(".")
 from random import choice
 from math import ceil
 from time import sleep
 
 from vlc import State, EventType, callbackmethod
 from libvlc_controller import VLCController
-import webpage
-from database import DBController
+import webpage, database
 from commands import commands
 from util import FORMATS, bufferlist, Socket, get_all
 
@@ -73,42 +72,6 @@ def get_remaining():
             return i
     raise TrackNotFoundError()
 
-def load_database(path):
-    global session, artists
-    print "Reading database."
-    session = database.connect(path)
-    artists = session.query(database.Artist).all()
-    if artists:
-        return
-    print "Builing database. This may take a while."
-    unknown = []
-    unknown_artist = database.Artist(path) # this is bad practice
-    unknown_artist.name = "Unknown"
-    for direc in os.listdir(path):
-        node = os.path.join(path, direc)
-        if os.path.isfile(node):
-            ext = os.path.splitext(node)[1]
-            if ext in FORMATS:
-                unknown.append(database.Track(node))
-        else:
-            artist = database.Artist(node)
-            artist.name = direc # fix this later
-            session.add(artist)
-            artists.append(artist)
-            for track in get_all(node):
-                try:
-                    artist.add(database.Track(track))
-                except IOError:
-                    pass
-    if unknown:
-        for track in unknown:
-            unknown_artist.add(track)
-        session.add(unknown_artist)
-        artists.append(unknown_artist)
-    session.commit()
-
-def choose(artists):
-
 class MusicThread():
     RUNNING = True
     def __init__(self, db_path):
@@ -124,7 +87,7 @@ class MusicThread():
         return
     def pick_next(self):
         global artist_buffer, song_buffer
-        artists_ = self.db.get_artists()[:]
+        artists_ = database.get_artists()[:]
         for artist in artist_buffer:
             try: artists_.remove(artist)
             except ValueError: pass
@@ -148,19 +111,18 @@ class MusicThread():
             print "Resetting constraints."
             del artist_buffer[:]
             del song_buffer[:]
-            song = choose()
+            song = choice(songs)
         song_buffer.append(song)
         v.add(song.path)
     def __call__(self):
-        self.db = DBController(os.path.join("music", self.db_path))
-        self.db.connect()
+        database.connect(os.path.join("music", self.db_path))
         self.db_built = True
-        if not artists:
+        if not database.get_artists():
             print "No artists!"
             shut_down()
             return
         if v.media_player.get_state() != State.Playing:
-            self.choose()
+            self.pick_next()
             v.set_broadcast()
             v.play()
         while v.media_player.get_state() != State.Playing:
@@ -248,7 +210,7 @@ def main():
     db_path = raw_input("music: ")
     music_thread = MusicThread(db_path)
     music_thread.start()
-    #sys.spawnprocess('webpage.py')
+    #sys.spawnprocess('webpage.py')?
     while not music_thread.db_built:
         sleep(1)
     print "connecting to webserver..."
@@ -266,7 +228,7 @@ def main():
             elif cmd in commands:
                 p = commands[cmd](v, args)
                 if p: print p
-            else:
+            elif cmd:
                 print "'%s' is not a command." % cmd
         print "shutting down..."
         shut_down()
