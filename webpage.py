@@ -1,5 +1,5 @@
-import sys, json, socket
-if 'modules' not in sys.path: sys.path.insert(0, 'modules')
+import sys, json, socket, os
+#if 'modules' not in sys.path: sys.path.insert(0, 'modules')
 from gevent import monkey
 from socketio.server import SocketIOServer
 from socketio.namespace import BaseNamespace
@@ -7,7 +7,11 @@ from socketio.mixins import BroadcastMixin
 from socketio import socketio_manage
 from flask import Flask, request, render_template, abort
 import jinja2
-from util import Track, Socket, TrackInfoNamespace
+try:
+    from util import Track, Socket, TrackInfoNamespace
+except:
+    import imp
+    util = imp.load_package('util', 'modules')
 
 #monkey.patch_all()
 app = Flask(__name__)
@@ -25,7 +29,8 @@ templates = {}
 def reload_templates():
     global templates
     templates = {}
-    templates['track'] = jinja2.Template(file('templates/track.html').read())
+    t = file('templates/track.html').read()
+    templates['track'] = jinja2.Template(t)
 reload_templates()
 
 # Socket endpoint
@@ -57,19 +62,18 @@ def hello_world():
     except Exception as e:
         return `e`
 
-##def attatch_get_track(func):
-##    global get_track
-##    get_track = func
-
 def on_message(message):
     if DEBUG: print "Message: %s" % message.strip()
     j = json.loads(message)
     if j['type'] == 'update':
-        if DEBUG: print "Now Playing %s by %s" % (j['data']['track'],j['data']['artist'])
+        if DEBUG: print "Now Playing %s by %s" % (j['data']['track'],
+                                                  j['data']['artist'])
         TrackInfoNamespace.update_track(j['data'])
 
 def on_connect():
     print "connected to music player."
+    sock.sendln(json.dumps({'type' : 'info',
+                          'data' : socket.gethostbyname(socket.gethostname())}))
 
 def on_disconnect():
     print "disconnected from music player."

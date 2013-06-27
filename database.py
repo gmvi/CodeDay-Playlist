@@ -108,7 +108,6 @@ def connect(path_):
     root_query = session.query(Folder).filter(Folder.root == True)
     if root_query[:1]:
         root = root_query[0]
-        print root
     else:
         Base.metadata.create_all()
         print "Builing database. This may take a while."
@@ -125,7 +124,6 @@ def connect(path_):
                 artist.songs.append(song)
                 session.add(artist)
                 session.commit()
-        print root
 
 def get_artists():
     return session.query(Artist)

@@ -1,4 +1,4 @@
-import sys, os, threading, socket, urllib, urllib2, json
+import sys, os, threading, socket, urllib, urllib2, json, subprocess
 if "modules" not in sys.path: sys.path.append("modules")
 base = os.path.abspath(".")
 from random import choice
@@ -7,7 +7,7 @@ from time import sleep
 
 from vlc import State, EventType, callbackmethod
 from libvlc_controller import VLCController
-import webpage, database
+import database
 from commands import commands
 from util import FORMATS, bufferlist, Socket, get_all
 
@@ -155,6 +155,10 @@ def shut_down():
     except Exception as e:
         print e
     try:
+        webpage_process.terminate()
+    except Exception as e:
+        print e
+    try:
         webpage_s.reset()
     except Exception as e:
         print e
@@ -180,6 +184,8 @@ def on_message(message):
                 update()
             else:
                 v.set_pos(0)
+    elif j['type'] == 'info':
+        print "webpage running on %s" % j['data']
 
 def on_connect():
     print "connected to webserver"
@@ -197,20 +203,16 @@ def update():
     except Socket.NotConnectedException:
         if DEBUG: print "Error updating: not connected", webpage_s._mode
 
-# obsolete    
-def attatch():
-    em = v.list_player.event_manager()
-    em.event_attach(EventType.MediaPlayerMediaChanged,
-                    lambda *args: update(), None)
-
 def main():
-    global music_thread, webpage_s, db_path
+    global music_thread, webpage_process, webpage_s, db_path
     webpage_s = Socket()
     load_vlc()
-    db_path = raw_input("music: ")
+    log = open('weblog.txt', "wb")
+    webpage_process = subprocess.Popen('python '+os.path.join(base, "webpage.py"),
+                                       shell = True, stdout=log, stderr=subprocess.STDOUT)
+    db_path = raw_input("playlist: ")
     music_thread = MusicThread(db_path)
     music_thread.start()
-    #sys.spawnprocess('webpage.py')?
     while not music_thread.db_built:
         sleep(1)
     print "connecting to webserver..."
@@ -231,6 +233,7 @@ def main():
             elif cmd:
                 print "'%s' is not a command." % cmd
         print "shutting down..."
+        log.close()
         shut_down()
 
 if __name__ == '__main__':
