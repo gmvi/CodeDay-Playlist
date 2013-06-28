@@ -1,17 +1,13 @@
 import sys, json, socket, os
-#if 'modules' not in sys.path: sys.path.insert(0, 'modules')
+if 'modules' not in sys.path: sys.path.append('modules')
 from gevent import monkey
 from socketio.server import SocketIOServer
 from socketio.namespace import BaseNamespace
-from socketio.mixins import BroadcastMixin
+from util import BroadcastNamespace
 from socketio import socketio_manage
 from flask import Flask, request, render_template, abort
 import jinja2
-try:
-    from util import Track, Socket, TrackInfoNamespace
-except:
-    import imp
-    util = imp.load_package('util', 'modules')
+from util import Socket
 
 #monkey.patch_all()
 app = Flask(__name__)
@@ -21,7 +17,6 @@ SOCK_PORT = 2148
 DEBUG = False
 
 track = None
-#get_track = lambda: Track() # the function to get the current track
 SHUTDOWN_KEY = "i've made a terrible mistake"
 
 # Templates
@@ -29,8 +24,8 @@ templates = {}
 def reload_templates():
     global templates
     templates = {}
-    t = file('templates/track.html').read()
-    templates['track'] = jinja2.Template(t)
+    track_template = file('templates/track.html').read()
+    templates['track'] = jinja2.Template(track_template)
 reload_templates()
 
 # Socket endpoint
@@ -42,6 +37,47 @@ def push_stream(rest):
         app.logger.error("Exception while handling socketio connection",
                          exc_info=True)
     return ""
+
+# It's weird but it works
+class TrackInfoNamespace(BroadcastNamespace):
+    control_socket = None
+    track = None
+
+    def __init__(self, *args, **kwargs):
+        if self.control_socket == None:
+            raise ValueError("must attatch a control socket first")
+        BroadcastNamespace.__init__(self, *args, **kwargs)
+    
+    @classmethod
+    def attatch_control(cls, control_sock):
+        cls.control_socket = control_sock
+    
+    @classmethod
+    def update_track(cls, track):
+        if track != cls.track:
+            cls.track = track
+            cls.broadcast('update', json.dumps(track))
+
+    @classmethod
+    def clear_track(cls):
+        cls.update_track(None)
+        
+    def on_request(self, message):
+        if message == 'track':
+            self.emit('track', json.dumps(self.track))
+        else:
+            self.emit('error', 'improper request')
+            
+    def on_command(self, message):
+        if message in ['next', 'pause', 'previous']:
+            j = json.dumps({"type" : "command",
+                            "data" :  message})
+            try:
+                self.control_socket.sendln(j)
+            except ValueError:
+                self.emit('error', "no program to control")
+        else:
+            self.emit('error', 'not a command')
 
 # To shut down the server.
 @app.route('/shutdown', methods=['POST'])

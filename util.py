@@ -257,41 +257,6 @@ class BroadcastNamespace(BaseNamespace):
         for socket in self.sockets:
             socket.emit(event, message)
 
-class TrackInfoNamespace(BroadcastNamespace):
-    control_socket = None
-    track = 'no track'
-
-    def __init__(self, *args, **kwargs):
-        if self.control_socket == None:
-            raise ValueError("must attatch a control socket first")
-        BroadcastNamespace.__init__(self, *args, **kwargs)
-    
-    @classmethod
-    def attatch_control(self, control_sock):
-        self.control_socket = control_sock
-    
-    @classmethod
-    def update_track(self, track):
-        self.track = track
-        self.broadcast('update', json.dumps(track))
-        
-    def on_request(self, message):
-        if message == 'track':
-            self.emit('track', json.dumps(self.track))
-        else:
-            self.emit('error', 'improper request')
-            
-    def on_command(self, message):
-        if message in ['next', 'pause', 'previous']:
-            j = json.dumps({"type" : "command",
-                            "data" :  message})
-            try:
-                self.control_socket.sendln(j)
-            except ValueError:
-                self.emit('error', "no program to control")
-        else:
-            self.emit('error', 'not a command')
-
 ## hide_arg_tooltip is a silly little thing.
 ##
 ## You can use hide_arg_tooltip(func) to get an object which will act like a

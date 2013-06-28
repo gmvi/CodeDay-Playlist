@@ -30,7 +30,7 @@ class TrackNotFoundError(ValueError): pass
 
 v = VLCController(BROADCAST) # VLCConstroller instance
 db_path = None # path to the songs in the database
-music_thread = None # thread controlling the queuing system
+RUNNING = True
 console_thread = None # thread controlling the console interface
 webserver_process = None # container for webserver subprocess
 webserver_sock = Socket() # util.Socket to handle communication with the webserver
@@ -77,86 +77,64 @@ def should_add_another():
         return media.get_duration() - \
                v.media_player.get_time() < TIME_CUTOFF_MS
 
-# This bullshit is entirely because I can't seem to disable the sqlite
-# anit-threading safeties in SQLAlchemy.
-class MusicThread():
-    def __init__(self, db_path):
-        self.RUNNING = True
-        self.db_built = False
-        self.db_path = db_path
-        self.thread = threading.Thread(target=self)
-        self._add = False
-    def start(self):
-        self.thread.start()
-    def stop(self):
-        self.RUNNING = False
-        
-    def add(self): # because I can only handle database objects from this thread
-        self._add = True
-        while self._add:
-            sleep(.1)
-        return
-    
-    def pick_next(self):
-        global artist_buffer, song_buffer
-        artists_ = database.get_artists()[:]
-        for artist in artist_buffer:
-            try: artists_.remove(artist)
-            except ValueError: pass
-        if not artists_: return None
-        artist = None
-        while not artist:
-            artist = choice(artists_)
-            songs = artist.songs[:]
-            for song in songs[:]:
-                if song in song_buffer:
-                    songs.remove(song)
-            if len(songs) == 0:
-                artists_.remove(artist)
-                if not artists_: return None
-                artist = None
-        artist_buffer.append(artist)
+# No more bullshit! Yay!
+def pick_next():
+    global artist_buffer, song_buffer
+    artists = database.get_artists()[:]
+    for artist in artist_buffer:
+        try: artists.remove(artist)
+        except ValueError: pass
+    if not artists: return None
+    artist = None
+    while not artist:
+        artist = choice(artists)
+        songs = artist.songs[:]
+        for song in songs[:]:
+            if song in song_buffer:
+                songs.remove(song)
+        if len(songs) == 0:
+            artists.remove(artist)
+            if not artists: return None
+            artist = None
+    artist_buffer.append(artist)
+    song = choice(songs)
+    if not song:
+        print "Not enough artists or songs! Lower your " + \
+              "MIN_BETW_REPEAT settings"
+        print "Resetting constraints."
+        del artist_buffer[:]
+        del song_buffer[:]
         song = choice(songs)
-        if not song:
-            print "Not enough artists or songs! Lower your " + \
-                  "MIN_BETW_REPEAT settings"
-            print "Resetting constraints."
-            del artist_buffer[:]
-            del song_buffer[:]
-            song = choice(songs)
-        song_buffer.append(song)
-        v.add(os.path.join(db_path, song.path))
+    song_buffer.append(song)
+    v.add(os.path.join(db_path, song.path))
     
-    def __call__(self): # main
-        database.connect(self.db_path)
-        self.db_built = True
-        if not database.get_artists():
-            print "No artists!"
-            shut_down()
-            return
-        if v.media_player.get_state() != State.Playing:
-            self.pick_next()
-            v.set_broadcast()
-            v.play()
-        while v.media_player.get_state() != State.Playing:
-            pass
-        current = ""
-        while self.RUNNING:
-            if v.get_media_path() != current: #split into another thread?
-                update()
-                current = v.get_media_path()
-            if v.should_reset_broadcast(): v.reset_broadcast()
-            if self._add:
-                self.pick_next()
-                self._add = False
-            if should_add_another():
-                self.pick_next()
-                time_left = (v.media_player.get_length() - v.media_player.get_time())/1000.0
-                sleep(time_left)
-                if not v.is_playing():
-                    v.play_last()
-            else:
-                sleep(LOOP_PERIOD_SEC)
+def music_picker_loop():
+    if not database.get_artists():
+        print "No artists!"
+        shut_down()
+        return
+    print "starting playback"
+    if v.media_player.get_state() != State.Playing:
+        pick_next()
+        v.set_broadcast()
+        v.play()
+    while v.media_player.get_state() != State.Playing:
+        pass
+    current = ""
+    while RUNNING:
+        if v.get_media_path() != current: #split into another thread?
+            update()
+            current = v.get_media_path()
+        if v.should_reset_broadcast(): v.reset_broadcast()
+        if should_add_another():
+            pick_next()
+            time_left = (v.media_player.get_length() \
+                         - v.media_player.get_time()) / 1000.0
+            sleep(time_left)
+            if not v.is_playing():
+                v.play_last()
+        else:
+            sleep(LOOP_PERIOD_SEC)
 
 ### WEBSERVER
 
@@ -165,7 +143,7 @@ def webserver_on_message_callback(message):
     if j['type'] == 'command':
         if j['data'] == 'next':
             if not v.has_next():
-                music_thread.add()
+                pick_next()
             v.next()
             update()
         elif j['data'] == 'pause':
@@ -177,7 +155,7 @@ def webserver_on_message_callback(message):
             else:
                 v.set_pos(0)
     elif j['type'] == 'info':
-        print "webpage running on %s" % j['data']
+        print "webserver running on %s" % j['data']
 
 def webserver_on_connect_callback():
     print "connected to webserver"
@@ -197,13 +175,15 @@ def update():
 
 def set_up_webserver():
     global webserver_process, webserver_sock
-    cmd = 'python ' + os.path.join(base, "webpage.py")
-    webserver_process = subprocess.Popen(cmd, shell = True, stdout=logfile, \
-                                         stderr=subprocess.STDOUT)
-    print "connecting to webserver..."
+    cmd = 'python ' + os.path.join(base, "webserver.py")
+    print "checking for webserver"
     webserver_sock.on_connect(webserver_on_connect_callback)
     webserver_sock.on_disconnect(webserver_on_disconnect_callback)
     webserver_sock.listen('localhost', SOCK_PORT, webserver_on_message_callback)
+    sleep(1)
+    print "starting webserver"
+    webserver_process = subprocess.Popen(cmd, shell = True, stdout=logfile, \
+                                         stderr=subprocess.STDOUT)
 
 ### CONSOLE INTERFACE
 
@@ -213,15 +193,14 @@ def shut_down():
     # Exceptions, so that other things get shut down, even if one doesn't.
     # This solution works for various arrangements of threading, subprocessing,
     # and multiprocessing.
-    funcs = [logfile.close,
-             music_thread.stop,
-             webserver_process.terminate,
-             v.stop_stream,
+    RUNNING = False
+    funcs = [v.stop_stream,
              v.stop,
-             webserver_sock.reset]
+             webserver_sock.reset,
+             logfile.close]
+    if webserver_process: funcs.insert(-1, webserver_process.terminate)
     for func in funcs:
-        try:
-            func()
+        try: func()
         except Exception as e:
             print e
     ##raw_input()
@@ -246,16 +225,14 @@ def console():
 ### MAIN
 
 def main():
-    global music_thread, console_thread, db_path
+    global console_thread, db_path
     db_path = os.path.join("music", raw_input("playlist: "))
-    music_thread = MusicThread(db_path)
-    music_thread.start()
+    database.connect(db_path)
     set_up_webserver()
-    while not music_thread.db_built:
-        sleep(1)
     if not IDLE:
         console_thread = threading.Thread(target=console)
         console_thread.start()
+    music_picker_loop()
 
 if __name__ == '__main__':
     main()

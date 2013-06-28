@@ -18,19 +18,25 @@
       { console.log("Error: " + message);
       });
       f = function(data)
-      { if (data == 'no track')
-        { console.log(data);
+      { if (data == 'None')
+        { $("#heading").text("No Current Track");
+          $("#track").text("");
+          $("#artist").text("");
         }
         else
         { track = JSON.parse(data);
-          console.log(track);
+          $("#heading").text("Current Track");
           $("#track").text(track.track);
           $("#artist").text(track.artist);
         }
       }
       socket.on('track', f);
       socket.on('update', f);
-      socket.emit('request', 'track');
+      f2 = function(data)
+      {  socket.emit('request', 'track');
+      }
+      socket.on('connect', f2);
+      f2();
     });
     </script>
   </head>
