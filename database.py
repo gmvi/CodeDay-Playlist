@@ -11,6 +11,13 @@ Session = sessionmaker()
 class MultipleRootError(Exception): pass
 class NoRootError(Exception): pass
 
+# Paths are stored in cdp.db databases as if the cdp.db were directly inside
+# curdir. In practice, the database is loaded from program.py, two levels
+# above cdp.db files. So this database controller must be aware of that when
+# using methods such as os.listdir
+path_to_root = None
+root_join = lambda a: os.path.join(path_to_root, a)
+
 def get_contents_hash(path):
     contents = os.listdir(path)
     mr_itchy = md5.md5()
@@ -39,11 +46,10 @@ class Folder(Base):
 
     @staticmethod
     def build(path = None, parent = None):
-        path = path or "."
-        folder = Folder(path, parent)
-        for node in os.listdir(path):
-            node = os.path.join(path, node)
-            if os.path.isfile(node):
+        folder = Folder(path or ".", parent)
+        for node in os.listdir(root_join(path)):
+            if path: node = os.path.join(path, node)
+            if os.path.isfile(root_join(node)):
                 node = File(node, folder)
                 folder.files.append(node)
             else:
@@ -71,16 +77,16 @@ class File(Base):
         self.path = path
         if parent:
             self.parent = parent
-        if util.is_supported(path):
+        if util.is_supported(root_join(path)):
             self.supported = True
-            tags = util.get_metadata(path)
+            tags = util.get_metadata(root_join(path))
             self.artist = tags[0]
             self.album_artist = tags[1]
             self.album = tags[2]
             self.track = tags[3]
         else:
             self.supported = False
-        self.size = os.path.getsize(self.path)
+        self.size = os.path.getsize(root_join(self.path))
 
     def get_dict(self):
         return {'track' : self.track,
@@ -96,11 +102,10 @@ class Artist(Base):
     def __init__(self, name):
         self.name = name
 
-def connect(path_):
-    global root, path, session, engine
-    path = path_
-    os.chdir(path)
-    engine = create_engine('sqlite:///cdp.db')
+def connect(root_path):
+    global root, path_to_root, session, engine
+    path_to_root = root_path
+    engine = create_engine('sqlite:///' + root_join('cdp.db'))
     session = Session(bind = engine)
     Base.metadata.bind = engine
     Base.metadata.create_all()

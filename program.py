@@ -1,46 +1,45 @@
-import sys, os, threading, socket, urllib, urllib2, json, subprocess
+import sys, os, threading, socket, json, subprocess
 if "modules" not in sys.path: sys.path.append("modules")
 base = os.path.abspath(".")
 from random import choice
-from math import ceil
 from time import sleep
 
-from vlc import State, EventType, callbackmethod
+from vlc import State
 from libvlc_controller import VLCController
 import database
 from commands import commands
-from util import FORMATS, bufferlist, Socket, get_all
+from util import bufferlist, Socket
 
-## ADJUSTABLE CONSTANTS
-ARTIST_BUFFER_SIZE = 4 # min playlist space betw tracks by same artist.
-SONG_BUFFER_SIZE = 30 # min playlist space betw same track twice.
+## CONSTANTS
+
+ARTIST_BUFFER_SIZE = 4 # min playlist space between tracks by same artist.
+SONG_BUFFER_SIZE = 30 # min playlist space between same track.
 TIME_CUTOFF_MS = 2000 # time away from end of last song to add another to list.
 LOOP_PERIOD_SEC = 1
 DEBUG = False # enable DEBUG to disable the standard command line controls,
               # for playing around with the program in the python shell.
+BROADCAST = False
 SHUTDOWN_KEY = "i've made a terrible mistake"
+lan_addr = socket.gethostbyname(socket.gethostname())
+IDLE = 'idlelib' in sys.modules
 
-v = None # VLCConstroller instance
-session = None # Database read/write client
+class BadMediaStateError(ValueError): pass
+class TrackNotFoundError(ValueError): pass
+
+## GLOBALS
+
+v = VLCController(BROADCAST) # VLCConstroller instance
 db_path = None # path to the songs in the database
 music_thread = None # thread controlling the queuing system
-webpage_s = None
-SOCK_PORT = 2148
-lan_addr=socket.gethostbyname(socket.gethostname())
+console_thread = None # thread controlling the console interface
+webserver_process = None # container for webserver subprocess
+webserver_sock = Socket() # util.Socket to handle communication with the webserver
+SOCK_PORT = 2148 # port for the socket
 artist_buffer = bufferlist(ARTIST_BUFFER_SIZE)
 song_buffer = bufferlist(SONG_BUFFER_SIZE)
+logfile = open('weblog.txt', "wb")
 
-def load_vlc():
-    global v
-    v = VLCController()
-    
-def should_add_another():
-    if get_remaining() != 0:
-        return False
-    media = v.media_player.get_media()
-    if media:
-        return media.get_duration() - \
-               v.media_player.get_time() < TIME_CUTOFF_MS
+### MUSIC CONTROL STUFF
 
 def get_track():
     #if v.media_player.get_state() == State.Playing:
@@ -57,9 +56,6 @@ def get_track():
                 if songpath == path:
                     return song
 
-class BadMediaStateError(ValueError): pass
-class TrackNotFoundError(ValueError): pass
-
 def get_remaining():
     path = v.get_media_path()
     if v.media_player.get_state() == State.Stopped or \
@@ -67,24 +63,40 @@ def get_remaining():
         raise BadMediaStateError()
     path = os.path.normpath(path)
     for i in range(len(song_buffer)):
-        songpath = os.path.normpath(os.path.abspath(song_buffer[-1-i].path))
+        buffer_song_path = os.path.join(db_path, song_buffer[-1-i].path)
+        songpath = os.path.normpath(os.path.abspath(buffer_song_path))
         if songpath == path:
             return i
-    raise TrackNotFoundError()
+    raise TrackNotFoundError(songpath)
 
+def should_add_another():
+    if get_remaining() != 0:
+        return False
+    media = v.media_player.get_media()
+    if media:
+        return media.get_duration() - \
+               v.media_player.get_time() < TIME_CUTOFF_MS
+
+# This bullshit is entirely because I can't seem to disable the sqlite
+# anit-threading safeties in SQLAlchemy.
 class MusicThread():
-    RUNNING = True
     def __init__(self, db_path):
         self.RUNNING = True
         self.db_built = False
         self.db_path = db_path
         self.thread = threading.Thread(target=self)
         self._add = False
-    def add(self):
+    def start(self):
+        self.thread.start()
+    def stop(self):
+        self.RUNNING = False
+        
+    def add(self): # because I can only handle database objects from this thread
         self._add = True
         while self._add:
             sleep(.1)
         return
+    
     def pick_next(self):
         global artist_buffer, song_buffer
         artists_ = database.get_artists()[:]
@@ -113,9 +125,10 @@ class MusicThread():
             del song_buffer[:]
             song = choice(songs)
         song_buffer.append(song)
-        v.add(song.path)
-    def __call__(self):
-        database.connect(os.path.join("music", self.db_path))
+        v.add(os.path.join(db_path, song.path))
+    
+    def __call__(self): # main
+        database.connect(self.db_path)
         self.db_built = True
         if not database.get_artists():
             print "No artists!"
@@ -144,31 +157,10 @@ class MusicThread():
                     v.play_last()
             else:
                 sleep(LOOP_PERIOD_SEC)
-    def start(self):
-        self.thread.start()
-    def stop(self):
-        self.RUNNING = False
 
-def shut_down():
-    try:
-        music_thread.stop()
-    except Exception as e:
-        print e
-    try:
-        webpage_process.terminate()
-    except Exception as e:
-        print e
-    try:
-        webpage_s.reset()
-    except Exception as e:
-        print e
-    try:
-        v.stop_stream()
-    except Exception as e:
-        print e
-    v.stop()
+### WEBSERVER
 
-def on_message(message):
+def webserver_on_message_callback(message):
     j = json.loads(message)
     if j['type'] == 'command':
         if j['data'] == 'next':
@@ -187,54 +179,83 @@ def on_message(message):
     elif j['type'] == 'info':
         print "webpage running on %s" % j['data']
 
-def on_connect():
+def webserver_on_connect_callback():
     print "connected to webserver"
     update()
 
-def on_disconnect():
+def webserver_on_disconnect_callback():
     print "disconnected from webserver"
 
 def update():
     try:
         track = get_track()
-        if track and webpage_s.can_send():
-            webpage_s.sendln(json.dumps({'type' : 'update',
-                                         'data' : track.get_dict()}))
+        if track and webserver_sock.can_send():
+            webserver_sock.sendln(json.dumps({'type' : 'update',
+                                              'data' : track.get_dict()}))
     except Socket.NotConnectedException:
-        if DEBUG: print "Error updating: not connected", webpage_s._mode
+        if DEBUG: print "Error updating: not connected", webserver_sock._mode
+
+def set_up_webserver():
+    global webserver_process, webserver_sock
+    cmd = 'python ' + os.path.join(base, "webpage.py")
+    webserver_process = subprocess.Popen(cmd, shell = True, stdout=logfile, \
+                                         stderr=subprocess.STDOUT)
+    print "connecting to webserver..."
+    webserver_sock.on_connect(webserver_on_connect_callback)
+    webserver_sock.on_disconnect(webserver_on_disconnect_callback)
+    webserver_sock.listen('localhost', SOCK_PORT, webserver_on_message_callback)
+
+### CONSOLE INTERFACE
+
+def shut_down():
+    print "shutting down..."
+    # Go through each of the shutdown functions sequentially, ignoring any
+    # Exceptions, so that other things get shut down, even if one doesn't.
+    # This solution works for various arrangements of threading, subprocessing,
+    # and multiprocessing.
+    funcs = [logfile.close,
+             music_thread.stop,
+             webserver_process.terminate,
+             v.stop_stream,
+             v.stop,
+             webserver_sock.reset]
+    for func in funcs:
+        try:
+            func()
+        except Exception as e:
+            print e
+    ##raw_input()
+    ##exit()
+
+def console():
+    cmd = None
+    while True:
+        tokens = raw_input().split(" ", 1)
+        cmd = tokens[0]
+        args = tokens[1] if len(tokens) == 2 else ""
+        if cmd == "quit":
+            break
+        elif cmd in commands:
+            p = commands[cmd](v, args)
+            if p: print p
+        elif cmd:
+            print "'%s' is not a command." % cmd
+    shut_down()
+    
+
+### MAIN
 
 def main():
-    global music_thread, webpage_process, webpage_s, db_path
-    webpage_s = Socket()
-    load_vlc()
-    log = open('weblog.txt', "wb")
-    webpage_process = subprocess.Popen('python '+os.path.join(base, "webpage.py"),
-                                       shell = True, stdout=log, stderr=subprocess.STDOUT)
-    db_path = raw_input("playlist: ")
+    global music_thread, console_thread, db_path
+    db_path = os.path.join("music", raw_input("playlist: "))
     music_thread = MusicThread(db_path)
     music_thread.start()
+    set_up_webserver()
     while not music_thread.db_built:
         sleep(1)
-    print "connecting to webserver..."
-    webpage_s.on_connect(on_connect)
-    webpage_s.on_disconnect(on_disconnect)
-    webpage_s.listen('localhost', SOCK_PORT, on_message)
-    if not DEBUG:
-        cmd = None
-        while True:
-            tokens = raw_input().split(" ", 1)
-            cmd = tokens[0]
-            args = tokens[1] if len(tokens) == 2 else ""
-            if cmd == "quit":
-                break
-            elif cmd in commands:
-                p = commands[cmd](v, args)
-                if p: print p
-            elif cmd:
-                print "'%s' is not a command." % cmd
-        print "shutting down..."
-        log.close()
-        shut_down()
+    if not IDLE:
+        console_thread = threading.Thread(target=console)
+        console_thread.start()
 
 if __name__ == '__main__':
     main()
