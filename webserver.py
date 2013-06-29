@@ -7,17 +7,17 @@ from util import BroadcastNamespace
 from socketio import socketio_manage
 from flask import Flask, request, render_template, abort
 import jinja2
-from util import Socket
+from util import Socket, load_settings
+load_settings()
+from settings import DEBUG, SHUTDOWN_KEY
 
 #monkey.patch_all()
 app = Flask(__name__)
 app.debug = True
 sock = Socket()
 SOCK_PORT = 2148
-DEBUG = False
 
 track = None
-SHUTDOWN_KEY = "i've made a terrible mistake"
 
 # Templates
 templates = {}
@@ -80,7 +80,7 @@ class TrackInfoNamespace(BroadcastNamespace):
             self.emit('error', 'not a command')
 
 # To shut down the server.
-@app.route('/shutdown', methods=['POST'])
+@app.route('/shutdown', methods=['GET', 'POST'])
 def shutdown():
     if str(request.form['key'] == SHUTDOWN_KEY):
         func = request.environ.get('werkzeug.server.shutdown')

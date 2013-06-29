@@ -8,18 +8,13 @@ from vlc import State
 from libvlc_controller import VLCController
 import database
 from commands import commands
-from util import bufferlist, Socket
+from util import bufferlist, Socket, load_settings
+load_settings()
 
 ## CONSTANTS
 
-ARTIST_BUFFER_SIZE = 4 # min playlist space between tracks by same artist.
-SONG_BUFFER_SIZE = 30 # min playlist space between same track.
-TIME_CUTOFF_MS = 2000 # time away from end of last song to add another to list.
-LOOP_PERIOD_SEC = 1
-DEBUG = False # enable DEBUG to disable the standard command line controls,
-              # for playing around with the program in the python shell.
-BROADCAST = False
-SHUTDOWN_KEY = "i've made a terrible mistake"
+from settings import ARTIST_BUFFER_SIZE, SONG_BUFFER_SIZE, TIME_CUTOFF_MS, \
+     LOOP_PERIOD_SEC, DEBUG, BROADCAST, SHUTDOWN_KEY, LOG_LOCATION
 lan_addr = socket.gethostbyname(socket.gethostname())
 IDLE = 'idlelib' in sys.modules
 
@@ -37,7 +32,7 @@ webserver_sock = Socket() # util.Socket to handle communication with the webserv
 SOCK_PORT = 2148 # port for the socket
 artist_buffer = bufferlist(ARTIST_BUFFER_SIZE)
 song_buffer = bufferlist(SONG_BUFFER_SIZE)
-logfile = open('weblog.txt', "wb")
+logfile = open(LOG_LOCATION, "wb")
 
 ### MUSIC CONTROL STUFF
 
