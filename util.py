@@ -10,6 +10,10 @@ from mutagen.flac import FLAC
 from socketio.namespace import BaseNamespace
 from random import choice
 
+def load_settings():
+    try: import settings
+    except: import default_settings as settings
+
 class UnsupportedFileTypeError(Exception): pass
 
 FORMATS = {".mp3"  : EasyMP3,
