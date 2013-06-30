@@ -10,25 +10,27 @@ from mutagen.flac import FLAC
 from socketio.namespace import BaseNamespace
 from random import choice
 
+## Utility Methods
+
 def load_settings():
     try: import settings
-    except: import default_settings as settings
+    except:
+        import settings_default
+        sys.modules['settings'] = settings_default
+
+def sleep(seconds, while_true = None, test_interval = .1):
+    start = time.time()
+    end = start+seconds
+    if while_true == None: while_true = lambda: True
+    remaining = lambda: end - time.time()
+    while while_true() and remaining() >= 0:
+        time.sleep(min(test_interval, remaining()))
+
+# files
 
 class UnsupportedFileTypeError(Exception): pass
 
-FORMATS = {".mp3"  : EasyMP3,
-           ".m4a"  : EasyMP4,
-           ".ogg"  : OggVorbis,
-           ".flac" : FLAC}
-
-is_supported = lambda path: os.path.splitext(path)[1] in FORMATS
-
-def get_info(audio, info):
-    if audio.has_key(info):
-        if type(audio[info]) == bool: return audio[info]
-        else: return audio[info][0]
-    else: return ""
-    
+is_supported = lambda path: os.path.splitext(path)[1] in FORMATS    
 
 def get_all(path):
     ret = []
@@ -41,6 +43,19 @@ def get_all(path):
                 ret.append(node)
     return ret
 
+# audio files
+
+FORMATS = {".mp3"  : EasyMP3,
+           ".m4a"  : EasyMP4,
+           ".ogg"  : OggVorbis,
+           ".flac" : FLAC}
+
+def get_info(audio, info):
+    if audio.has_key(info):
+        if type(audio[info]) == bool: return audio[info]
+        else: return audio[info][0]
+    else: return ""
+
 def get_metadata(filepath):
     ext = os.path.splitext(filepath)[1]
     if ext not in FORMATS:
@@ -51,7 +66,7 @@ def get_metadata(filepath):
         audio = MP3(filepath)
         audio.add_tags()
         audio.save()
-        audio = EasyID3(filepath)
+        audio = EasyMP3(filepath)
     artist = get_info(audio, 'artist')
     album_artist = get_info(audio, 'performer') or artist
     album = get_info(audio, 'album')
@@ -61,11 +76,24 @@ def get_metadata(filepath):
             album,
             title)
 
+## Utility Classes
+
+#obsolete
 class Artist():
     
     def __init__(self, path, name = None):
         self.path = path
-        self.name = name
+        self.name = name or ""
+        self.songs = []
+
+    @staticmethod
+    def convert(object):
+        try:
+            a = Artist(object.path)
+            a.name = object.name
+            a.songs = object.songs
+        except:
+            raise Exception("failed")
 
     def add(self, track):
         self.songs.append(track)
@@ -74,7 +102,7 @@ class Artist():
         self.songs.remove(track)
 
     def __eq__(self, other):
-        return self.name == other.name
+        return (self.name, self.path) == (other.name, other.path)
 
     def __str__(self):
         return "<Artist: %s>" % self.name
@@ -82,9 +110,10 @@ class Artist():
     def __repr__(self):
         return "Artist(%s)" % self.path
 
+#obsolete
 class Track():
 
-    def __init__(self, path):
+    def __init__(self, path = None):
         self.path = path
         if path == None:
             self.track = None
@@ -92,6 +121,17 @@ class Track():
             self.artist= None
         else:
             self.track, self.album, self.artist = get_all_info(path)
+
+    @staticmethod
+    def convert(object):
+        try:
+            t = Track()
+            t.path, t.track, t.album, t.artist = (object.path,
+                                                  object.track,
+                                                  object.album,
+                                                  object.artist)
+        except:
+            raise Exception("failed")
 
     def __eq__(self, other):
         return self.path == other.path
@@ -131,14 +171,13 @@ class Socket():
     MODE_CONNECTING = 3
     MODE_CONNECTED = 4
     MODE_ERROR = 5
-    CAN_SEND_MODES = [MODE_ACCEPTED,
+    MODES_CAN_SEND = [MODE_ACCEPTED,
                       MODE_CONNECTED]
     
     def can_send(self):
-        return self._mode in Socket.CAN_SEND_MODES
+        return self._mode in Socket.MODES_CAN_SEND
     
-    def __init__(self, verbose = False):
-        self._verbose = verbose
+    def __init__(self):
         self._sock = None
         self._sock2 = None
         self.message_callback = None
@@ -152,7 +191,7 @@ class Socket():
         self.message_callback = None
         self._alive = False
         while self._thread and self._thread.isAlive():
-            pass
+            sleep(1, while_true = lambda: self._thread.isAlive())
         self._alive = True
         self._mode = Socket.MODE_NONE
         self._sock = None
@@ -173,14 +212,14 @@ class Socket():
         self._sock2.listen(1)
         if on_message != None: self.message_callback = on_message
         def accept():
-            self._sock2.settimeout(5)
+            self._sock2.settimeout(1)
             while self._alive:
                 self._mode = Socket.MODE_LISTENING
                 try:
                     self._sock, address = self._sock2.accept()
                 except socket.timeout:
                     continue
-                self._sock.settimeout(5)
+                self._sock.settimeout(1)
                 self._mode = Socket.MODE_ACCEPTED
                 if self.connect_callback != None: self.connect_callback()
                 message = ""
@@ -207,7 +246,7 @@ class Socket():
         if on_message != None: self.message_callback = on_message
         def connect():
             self._sock = socket.socket()
-            self._sock.settimeout(5)
+            self._sock.settimeout(1)
             while self._alive:
                 self._mode = Socket.MODE_CONNECTING
                 try:
@@ -215,7 +254,7 @@ class Socket():
                 except socket.timeout:
                     continue
                 except socket.error:
-                    time.sleep(5)
+                    sleep(5, while_true = lambda: self._alive)
                     continue
                 self._mode = Socket.MODE_CONNECTED
                 if self.connect_callback != None: self.connect_callback()
@@ -236,12 +275,12 @@ class Socket():
                         message = ""
                 self.disconnect_callback()
                 self._sock = socket.socket()
-                self._sock.settimeout(5)
+                self._sock.settimeout(1)
         self._thread = threading.Thread(target=connect)
         self._thread.start()
 
     def send(self, message):
-        if self._mode in (Socket.MODE_ACCEPTED, Socket.MODE_CONNECTED):
+        if self._mode in Socket.MODES_CAN_SEND:
             self._sock.send(message)
         else:
             raise Socket.NotConnectedException(self._mode)
@@ -261,6 +300,8 @@ class BroadcastNamespace(BaseNamespace):
         for socket in self.sockets:
             socket.emit(event, message)
 
+## Other
+
 ## hide_arg_tooltip is a silly little thing.
 ##
 ## You can use hide_arg_tooltip(func) to get an object which will act like a
@@ -271,21 +312,21 @@ class BroadcastNamespace(BaseNamespace):
 ## You can also use it as a decorator, like this:
 ##   @hide_arg_tooltip
 ##   def a():
-##       """docstring"""
-##       pass
+##      """docstring"""
+##      pass
 
 def hide_arg_tooltip(func): return _function(func)
 
 class _function:
-	def __init__(self, func):
-		self.func = func
-		self.__doc__ = func.__doc__
-	def __call__(self, *args, **kwargs):
-		return self.func(*args, **kwargs)
-	def __repr__(self):
-            hex_id = hex(id(self))
-            hex_id = hex_id[:2] + hex_id[2:].upper()
-            return "<%s %s at %s>" % (self.__class__.__name__, \
-                                      self.func.__name__, hex_id)
-        def __str__(self):
-            return `self`
+    def __init__(self, func):
+        self.func = func
+        self.__doc__ = func.__doc__
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+    def __repr__(self):
+        hex_id = hex(id(self))
+        hex_id = hex_id[:2] + hex_id[2:].upper()
+        return "<%s %s at %s>" % (self.__class__.__name__, \
+                                  self.func.__name__, hex_id)
+    def __str__(self):
+        return `self`

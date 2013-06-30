@@ -104,6 +104,7 @@ def pick_next():
     v.add(os.path.join(db_path, song.path))
     
 def music_picker_loop():
+    global RUNNING
     if not database.get_artists():
         print "No artists!"
         shut_down()
@@ -183,12 +184,14 @@ def set_up_webserver():
 ### CONSOLE INTERFACE
 
 def shut_down():
+    global RUNNING, webserver_sock
     print "shutting down..."
     # Go through each of the shutdown functions sequentially, ignoring any
     # Exceptions, so that other things get shut down, even if one doesn't.
     # This solution works for various arrangements of threading, subprocessing,
     # and multiprocessing.
     RUNNING = False
+    sleep(LOOP_PERIOD_SEC)
     funcs = [v.stop_stream,
              v.stop,
              webserver_sock.reset,
@@ -198,8 +201,9 @@ def shut_down():
         try: func()
         except Exception as e:
             print e
-    ##raw_input()
-    ##exit()
+    del webserver_sock
+    if DEBUG: raw_input()
+    exit()
 
 def console():
     cmd = None
