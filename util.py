@@ -19,9 +19,11 @@ def load_settings():
         sys.modules['settings'] = settings_default
 
 def sleep(seconds, while_true = None, test_interval = .1):
+    if while_true == None:
+        time.sleep(seconds)
+        return
     start = time.time()
     end = start+seconds
-    if while_true == None: while_true = lambda: True
     remaining = lambda: end - time.time()
     while while_true() and remaining() >= 0:
         time.sleep(min(test_interval, remaining()))
@@ -149,8 +151,8 @@ class Track():
 
 class bufferlist(list):
     buffer_size = 0
-    def insert(index, object): raise Exception()
-    def extend(iterable): raise Exception()
+    def insert(index, object): raise NotImplementedError()
+    def extend(iterable): raise NotImplementedError()
 
     def __init__(self, size):
         list.__init__(self)
@@ -191,7 +193,7 @@ class Socket():
         self.message_callback = None
         self._alive = False
         while self._thread and self._thread.isAlive():
-            sleep(1, while_true = lambda: self._thread.isAlive())
+            sleep(.5)
         self._alive = True
         self._mode = Socket.MODE_NONE
         self._sock = None
@@ -325,7 +327,7 @@ class _function:
         return self.func(*args, **kwargs)
     def __repr__(self):
         hex_id = hex(id(self))
-        hex_id = hex_id[:2] + hex_id[2:].upper()
+        hex_id = hex_id[:2] + hex_id[2:].upper().rjust(8,'0')
         return "<%s %s at %s>" % (self.__class__.__name__, \
                                   self.func.__name__, hex_id)
     def __str__(self):
