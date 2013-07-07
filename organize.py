@@ -7,10 +7,11 @@ from mutagen.oggvorbis import OggVorbis
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.flac import FLAC
 
-error = False
+from util import UnsupportedFileTypeError, FORMATS, get_info
+
+errors = []
 
 class FileAlreadyExistsError(Exception): pass
-class UnsupportedFileTypeError(Exception): pass
 
 ## SETTINGS/
 
@@ -19,11 +20,6 @@ PATTERNS = [("music/2ampool", "music/2am"),
             ("music/mainpool", "music/main")]
 
 ## /SETTINGS
-
-FORMATS = {".mp3" : EasyMP3,
-           ".m4a" : EasyMP4,
-           ".ogg" : OggVorbis,
-           ".flac" : FLAC}
 
 trackFormat = lambda number: "0"*(len(number)==1) + number
 
@@ -39,12 +35,6 @@ def unicode_to_string(u):
         return str(u)
     except UnicodeEncodeError:
         return "".join(map(lambda u: chr(ord(u)), u))
-
-def get_info(audio, info):
-    if audio.has_key(info):
-        if type(audio[info]) == bool: return audio[info]
-        else: return audio[info][0]
-    else: return ""
 
 def get_all_info(filepath):
     ext = os.path.splitext(filepath)[1]
@@ -71,17 +61,16 @@ def get_all_info(filepath):
             ext,
             is_compil)
 
-def moveFile(src, dst):
+# I really need to document this code
+def moveFile(src, dst, delete = True):
     def year_from_folder(folder):
         if is_compil:
             return int(os.path.split(folder)[1][:-1].split('(')[1])
         else:
             return int(os.path.split(folder)[1][1:].split(')')[0])
     if not os.path.exists(dst): os.mkdir(dst)
-    try:
-        (artist, album, date, tracknum, title, ext, is_compil) = get_all_info(src)
-    except UnsupportedFileTypeError:
-        return
+    (artist, album, date, tracknum, title, ext, is_compil) = \
+        get_all_info(src)
     date = date.split('-')[0]
     tracknum = tracknum.split('/')[0].split('-')[0]
     if tracknum: tracknum += " "
@@ -101,27 +90,37 @@ def moveFile(src, dst):
                 if is_compil: dst = os.path.join(dst, album + bool(date)*(" (%s)"%date))
                 else: dst = os.path.join(dst, bool(date)*("(%s) "%date) + album)
                 os.mkdir(dst)
-    if not os.path.exists(os.path.join(dst, name)):
-        shutil.move(src, os.path.join(dst, name))
-
-def handle(f, dst):
-    global error
-    if os.path.splitext(f)[1] in FORMATS:
-        try: moveFile(f, dst)
+    rel_path = os.path.join(dst, name)
+    if not os.path.exists(rel_path):
+        try:
+            if delete:
+                shutil.move(src, rel_path)
+            else:
+                shutil.copy(src, rel_path)
         except Exception as e:
-            print e
-            error = True
+            return (rel_path, e)
+        return (rel_path, None)
+    else:
+        return (rel_path, FileAlreadyExistsError())
 
-def handle_dir(src, dst):
-    for f in map(lambda f: os.path.join(src, f), os.listdir(src)):
-        if os.path.isdir(f):
-            handle_dir(f, dst)
-            if not os.listdir(f):
-                os.rmdir(f)
-        else:
-            handle(f, dst)
+def handle_dir(src, dst, delete = True):
+    def handle(src, dst, delete = True, errors = []):
+        for f in map(lambda f: os.path.join(src, f), os.listdir(src)):
+            if os.path.isdir(f):
+                errors = handle(f, dst, delete, errors)
+                if not os.listdir(f):
+                    os.rmdir(f)
+            else:
+                if os.path.splitext(f)[1] in FORMATS:
+                    try:
+                        moveFile(f, dst, delete)
+                    except Exception as e:
+                        errors += (f, e)
+        return errors
+    return handle(src, dst, delete)
 
 def main():
+    global errors
 ##    map(handle, [f for f in os.listdir("\\")
 ##                 if os.path.isfile(f)
 ##                 and os.path.splitext(f)[1] in FORMATS])
@@ -129,11 +128,15 @@ def main():
     src = raw_input("src dir: ")
     out = raw_input("out dir: ")
     if src and out:
-        handle_dir(src, out)
+        errors = handle_dir(src, out)
     else:
         raw_input("bad input")
 
-main()
-
-if error: raw_input("Something unusual happened.")
-else: print "DONE"
+if __name__ == "__main__":
+    main()
+    
+    if errors:
+        print("Something unusual happened.")
+        for error in errors:
+            print "at '%s':\n    %s" % error
+    else: print "DONE"

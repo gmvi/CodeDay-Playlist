@@ -226,6 +226,7 @@ def console():
 def main():
     global console_thread, db_path
     db_path = os.path.join("music", raw_input("playlist: "))
+    print db_path
     database.connect(db_path)
     set_up_webserver()
     if not IDLE:

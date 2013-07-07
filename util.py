@@ -18,6 +18,7 @@ def load_settings():
         import settings_default
         sys.modules['settings'] = settings_default
 
+# Do I even use this anymore? maybe in Socket?
 def sleep(seconds, while_true = None, test_interval = .1):
     if while_true == None:
         time.sleep(seconds)
@@ -44,6 +45,23 @@ def get_all(path):
             if os.path.splitext(node)[1] in FORMATS:
                 ret.append(node)
     return ret
+
+def path_relative_to(root, rel_path):
+	root = split(root)
+	rel_path = split(rel_path)
+	if rel_path[:len(root)] == root:
+		return os.path.sep.join(rel_path[len(root):])
+	else:
+		raise ValueError()
+
+def split(path):
+    if type(path) is str:
+        path = (path,)
+    first_split = os.path.split(path[0])
+    if first_split[0] == '':
+        return path
+    path = os.path.split(path[0]) + path[1:]
+    return split(path)
 
 # audio files
 
@@ -80,74 +98,74 @@ def get_metadata(filepath):
 
 ## Utility Classes
 
-#obsolete
-class Artist():
-    
-    def __init__(self, path, name = None):
-        self.path = path
-        self.name = name or ""
-        self.songs = []
-
-    @staticmethod
-    def convert(object):
-        try:
-            a = Artist(object.path)
-            a.name = object.name
-            a.songs = object.songs
-        except:
-            raise Exception("failed")
-
-    def add(self, track):
-        self.songs.append(track)
-
-    def remove(self, track):
-        self.songs.remove(track)
-
-    def __eq__(self, other):
-        return (self.name, self.path) == (other.name, other.path)
-
-    def __str__(self):
-        return "<Artist: %s>" % self.name
-
-    def __repr__(self):
-        return "Artist(%s)" % self.path
-
-#obsolete
-class Track():
-
-    def __init__(self, path = None):
-        self.path = path
-        if path == None:
-            self.track = None
-            self.album = None
-            self.artist= None
-        else:
-            self.track, self.album, self.artist = get_all_info(path)
-
-    @staticmethod
-    def convert(object):
-        try:
-            t = Track()
-            t.path, t.track, t.album, t.artist = (object.path,
-                                                  object.track,
-                                                  object.album,
-                                                  object.artist)
-        except:
-            raise Exception("failed")
-
-    def __eq__(self, other):
-        return self.path == other.path
-
-    def __str__(self):
-        return "<Track: %s by %s>" % (self.track, self.artist)
-
-    def __repr__(self):
-        return "Track(%s)" % self.path
-
-    def get_dict(self):
-        return {'track' : self.track,
-                'album' : self.album,
-                'artist': self.artist}
+###obsolete
+##class Artist():
+##    
+##    def __init__(self, path, name = None):
+##        self.path = path
+##        self.name = name or ""
+##        self.songs = []
+##
+##    @staticmethod
+##    def convert(object):
+##        try:
+##            a = Artist(object.path)
+##            a.name = object.name
+##            a.songs = object.songs
+##        except:
+##            raise Exception("failed")
+##
+##    def add(self, track):
+##        self.songs.append(track)
+##
+##    def remove(self, track):
+##        self.songs.remove(track)
+##
+##    def __eq__(self, other):
+##        return (self.name, self.path) == (other.name, other.path)
+##
+##    def __str__(self):
+##        return "<Artist: %s>" % self.name
+##
+##    def __repr__(self):
+##        return "Artist(%s)" % self.path
+##
+###obsolete
+##class Track():
+##
+##    def __init__(self, path = None):
+##        self.path = path
+##        if path == None:
+##            self.track = None
+##            self.album = None
+##            self.artist= None
+##        else:
+##            self.track, self.album, self.artist = get_all_info(path)
+##
+##    @staticmethod
+##    def convert(object):
+##        try:
+##            t = Track()
+##            t.path, t.track, t.album, t.artist = (object.path,
+##                                                  object.track,
+##                                                  object.album,
+##                                                  object.artist)
+##        except:
+##            raise Exception("failed")
+##
+##    def __eq__(self, other):
+##        return self.path == other.path
+##
+##    def __str__(self):
+##        return "<Track: %s by %s>" % (self.track, self.artist)
+##
+##    def __repr__(self):
+##        return "Track(%s)" % self.path
+##
+##    def get_dict(self):
+##        return {'track' : self.track,
+##                'album' : self.album,
+##                'artist': self.artist}
 
 class bufferlist(list):
     buffer_size = 0

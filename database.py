@@ -1,6 +1,6 @@
 import os, sys, md5, time
 if 'modules' not in sys.path: sys.path.append('modules')
-import util
+import util, organize
 from sqlalchemy import create_engine, event
 from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -47,7 +47,7 @@ class Folder(Base):
         else:
             self.root = True
         self.hash = get_contents_hash(self.rel_path)
-
+    
     @staticmethod
     def build(path = None, parent = None):
         rel_path = root_join(path or ".")
@@ -152,14 +152,17 @@ class Artist(Base):
 def connect(root_path):
     global root, path_to_root, session, engine
     path_to_root = root_path
-    engine = create_engine('sqlite:///' + root_join('cdp.db'))
+    db_path = 'sqlite:///' + root_join('cdp.db')
+    print db_path
+    engine = create_engine(db_path)
+    engine.text_factory = str
     session = Session(bind = engine)
     Base.metadata.bind = engine
     Base.metadata.create_all()
     print "Reading database."
     root_query = session.query(Folder).filter(Folder.root == True)
-    if root_query[:1]:
-        root = root_query[0]
+    if root_query.count():
+        root = root_query.one()
     else:
         print "Builing database. This may take a while."
         build()
@@ -173,13 +176,46 @@ def build():
     for song in session.query(File).filter(File.supported == True):
         artist_query = session.query(Artist) \
                               .filter(Artist.name == song.album_artist)
-        if artist_query[:1]:
-            artist_query[0].songs.append(song)
+        if artist_query.count():
+            artist_query.one().songs.append(song)
         else:
             artist = Artist(song.album_artist)
             artist.songs.append(song)
             session.add(artist)
             session.commit()
+
+def handle_dir(src, dst, delete = False):
+    def handle(src, dst, errors = []):
+        for f in map(lambda f: os.path.join(src, f), os.listdir(src)):
+            if os.path.isdir(f):
+                errors = handle(f, dst, errors)
+                if not os.listdir(f):
+                    os.rmdir(f)
+            elif os.path.splitext(f)[1] in util.FORMATS:
+                rel_path, e = organize.moveFile(f, dst, delete)
+                if e:
+                    errors += (f, rel_path, e)
+                else:
+                    create_all(dst, rel_path)
+        return errors
+    return handle(src, dst)
+
+def create_all(rel_path, file_path):
+    print rel_path, file_path
+    path = util.path_relative_to(path_to_root, rel_path)
+    path = util.split(path)
+    cumulative_path = ""
+    parent = root
+    for segment in path:
+        cumulative_path = os.path.join(cumulative_path, segment)
+        folder_q = session.query(Folder) \
+                   .filter(Folder.path == cumulative_path)
+        if folder_q.count():
+            parent = folder_q.one()
+        else:
+            parent = Folder(cumulative_path, parent)
+    file_path = util.path_relative_to(path_to_root, file_path)
+    File(file_path, parent)
 
 def get_artists():
     return session.query(Artist)
