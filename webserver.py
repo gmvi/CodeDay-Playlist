@@ -122,7 +122,7 @@ def run():
     sock.on_disconnect(on_disconnect)
     sock.connect('localhost', SOCK_PORT, on_message)
     TrackInfoNamespace.attatch_control(sock)
-    server = SocketIOServer((ip_addr, 80), app, resource="socket.io")
+    server = SocketIOServer(("", 80), app, resource="socket.io")
     print "running on %s" % ip_addr
     server.serve_forever()
 

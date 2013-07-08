@@ -120,7 +120,7 @@ class VLCController():
         if not cur_item: return False
         last = len(self.media_list)-1
         if last == -1: return False
-        last_item = self.media_list[i].get_mrl()
+        last_item = self.media_list[last].get_mrl()
         return last_item != cur_item.get_mrl()
 
     def has_previous(self):

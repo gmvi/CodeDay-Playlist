@@ -53,8 +53,7 @@ def get_track():
 
 def get_remaining():
     path = v.get_media_path()
-    if v.media_player.get_state() == State.Stopped or \
-       not path:
+    if v.media_player.get_state() == State.Stopped or not path:
         raise BadMediaStateError()
     path = os.path.normpath(path)
     for i in range(len(song_buffer)):
@@ -134,22 +133,28 @@ def music_picker_loop():
 
 ### WEBSERVER
 
+def next():
+    if not v.has_next():
+        pick_next()
+    v.next()
+    update()
+
+def previous():
+    if v.has_previous():
+        v.previous()
+        update()
+    else:
+        v.set_pos(0)
+
 def webserver_on_message_callback(message):
     j = json.loads(message)
     if j['type'] == 'command':
         if j['data'] == 'next':
-            if not v.has_next():
-                pick_next()
-            v.next()
-            update()
+            next()
         elif j['data'] == 'pause':
             v.pause()
         elif j['data'] == 'previous':
-            if v.has_previous():
-                v.previous()
-                update()
-            else:
-                v.set_pos(0)
+            previous()
     elif j['type'] == 'info':
         print "webserver running on %s" % j['data']
 
@@ -214,7 +219,7 @@ def console():
         if cmd == "quit":
             break
         elif cmd in commands:
-            p = commands[cmd](v, args)
+            p = commands[cmd](args)
             if p: print p
         elif cmd:
             print "'%s' is not a command." % cmd

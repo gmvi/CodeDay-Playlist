@@ -1,35 +1,54 @@
 import types
 commands = {}
+import __main__ as program
 
-def cmd(name):
+# this all seems really silly in retrospect
+
+# This decorator is gross.
+def cmd(name_or_func):
     def decorator(func):
         if name in commands:
             raise ValueError('command name already used')
-        def norm_func(vlc, argstring):
-            global v, args
-            v, args = vlc, argstring
+        def norm_func(argstring):
+            global args
+            args = argstring
             return func()
         norm_func.func_name = func.func_name
         commands[name] = norm_func
         return norm_func
-    if type(name) == types.FunctionType:
-        func = name
+    if type(name_or_func) == types.FunctionType:
+        func = name_or_func
         name = func.__name__
         return decorator(func)
     else:
+        name = name_or_func
         return decorator
 
 @cmd
+def help():
+    print "commands:"
+    for name in commands:
+        if name != 'help':
+            print "%s: %s" % (name, commands[name].__doc__)
+
+@cmd
+def info():
+    track = program.get_track()
+    if not track:
+        return "Error getting current track"
+    return "Now Playing: %s by %s" % (track.track, track.artist)
+
+@cmd
 def play():
-    v.play()
+    program.v.play()
 
 @cmd
 def pause():
-    v.pause()
+    program.v.pause()
 
 @cmd
 def next():
-    v.media_player.set_position(.985)
+    program.v.set_pos(.985)
 
 @cmd
 def vol():
@@ -40,7 +59,7 @@ def vol():
     try:
         x = int(x[0])
         if x >=0 and x <= 200:
-            v.media_player.audio_set_volume(x)
+            program.v.media_player.audio_set_volume(x)
             return
     except ValueError:
         pass
@@ -48,8 +67,8 @@ def vol():
 
 @cmd
 def prev():
-    v.previous()
+    program.previous()
 
 @cmd
 def last():
-    v.play_last()
+    program.v.play_last()
