@@ -153,7 +153,6 @@ def connect(root_path):
     global root, path_to_root, session, engine
     path_to_root = root_path
     db_path = 'sqlite:///' + root_join('cdp.db')
-    print db_path
     engine = create_engine(db_path)
     engine.text_factory = str
     session = Session(bind = engine)

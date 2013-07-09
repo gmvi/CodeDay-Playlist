@@ -70,6 +70,7 @@ class TrackInfoNamespace(BroadcastNamespace):
             
     def on_command(self, message):
         if message in ['next', 'pause', 'previous']:
+            if DEBUG: print "sending command '%s' to program" % message
             j = json.dumps({"type" : "command",
                             "data" :  message})
             try:
@@ -100,11 +101,17 @@ def hello_world():
 
 def on_message(message):
     if DEBUG: print "Message: %s" % message.strip()
-    j = json.loads(message)
-    if j['type'] == 'update':
-        if DEBUG: print "Now Playing %s by %s" % (j['data']['track'],
-                                                  j['data']['artist'])
-        TrackInfoNamespace.update_track(j['data'])
+    try:
+        j = json.loads(message)
+    except ValueError:
+        print "Error: Improperly formatted message"
+    try:
+        if j['type'] == 'update':
+            if DEBUG: print "Now Playing %s by %s" % (j['data']['track'],
+                                                      j['data']['artist'])
+            TrackInfoNamespace.update_track(j['data'])
+    except KeyError:
+        print "Error: Improperly formatted message"
 
 def on_connect():
     print "connected to music player."

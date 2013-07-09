@@ -34,22 +34,34 @@ artist_buffer = bufferlist(ARTIST_BUFFER_SIZE)
 song_buffer = bufferlist(SONG_BUFFER_SIZE)
 logfile = open(LOG_LOCATION, "wb")
 
+# hax
+NONE = 0
+NEXT = 1
+PREV = 2
+do = NONE
+
 ### MUSIC CONTROL STUFF
 
-def get_track():
-    #if v.media_player.get_state() == State.Playing:
-        if len(song_buffer) == 0:
-            return
-        elif len(song_buffer) == 1:
-            return song_buffer[0]
-        else:
-            path = v.get_media_path()
-            if not path: return
-            path = os.path.normpath(path)
-            for song in song_buffer[::-1]:
-                songpath = os.path.normpath(os.path.abspath(song.path))
-                if songpath == path:
-                    return song
+def get_track(verbose = False):
+    if len(song_buffer) == 0:
+        if verbose and DEBUG:
+            print "get_track() failed: no songs in song_buffer"
+        return
+    elif len(song_buffer) == 1:
+        return song_buffer[0]
+    else:
+        path = v.get_media_path()
+        if not path:
+            if verbose and DEBUG:
+                print "get_track() failed: no current song in VLCController"
+                return
+        path = os.path.normpath(path)
+        for song in song_buffer[::-1]:
+            songpath = os.path.normpath(os.path.abspath(song.rel_path))
+            if songpath == path:
+                return song
+        if verbose and DEBUG:
+            print "VLCController path not in song_buffer"
 
 def get_remaining():
     path = v.get_media_path()
@@ -101,9 +113,10 @@ def pick_next():
         song = choice(songs)
     song_buffer.append(song)
     v.add(os.path.join(db_path, song.path))
-    
+
+#To do: leverage gevent, since I'm already using it for socket.io
 def music_picker_loop():
-    global RUNNING
+    global RUNNING, do
     if not database.get_artists():
         print "No artists!"
         shut_down()
@@ -120,24 +133,32 @@ def music_picker_loop():
         if v.get_media_path() != current: #split into another thread?
             update()
             current = v.get_media_path()
+        if do:
+            if do == NEXT:
+                next()
+            elif do == PREV:
+                previous()
+            do = NONE
         if v.should_reset_broadcast(): v.reset_broadcast()
         if should_add_another():
             pick_next()
             time_left = (v.media_player.get_length() \
                          - v.media_player.get_time()) / 1000.0
-            sleep(time_left)
+            sleep(time_left+.01)
             if not v.is_playing():
                 v.play_last()
         else:
             sleep(LOOP_PERIOD_SEC)
-
-### WEBSERVER
 
 def next():
     if not v.has_next():
         pick_next()
     v.next()
     update()
+
+def _next():
+    global do
+    do = NEXT
 
 def previous():
     if v.has_previous():
@@ -146,15 +167,21 @@ def previous():
     else:
         v.set_pos(0)
 
+def _prev():
+    global do
+    do = PREV
+
+### WEBSERVER
+
 def webserver_on_message_callback(message):
     j = json.loads(message)
     if j['type'] == 'command':
         if j['data'] == 'next':
-            next()
+            _next()
         elif j['data'] == 'pause':
             v.pause()
         elif j['data'] == 'previous':
-            previous()
+            _prev()
     elif j['type'] == 'info':
         print "webserver running on %s" % j['data']
 
@@ -224,14 +251,12 @@ def console():
         elif cmd:
             print "'%s' is not a command." % cmd
     shut_down()
-    
 
 ### MAIN
 
 def main():
     global console_thread, db_path
     db_path = os.path.join("music", raw_input("playlist: "))
-    print db_path
     database.connect(db_path)
     set_up_webserver()
     if not IDLE:

@@ -33,7 +33,7 @@ def help():
 
 @cmd
 def info():
-    track = program.get_track()
+    track = program.get_track(verbose = True)
     if not track:
         return "Error getting current track"
     return "Now Playing: %s by %s" % (track.track, track.artist)
@@ -48,7 +48,7 @@ def pause():
 
 @cmd
 def next():
-    program.v.set_pos(.985)
+    program._next()
 
 @cmd
 def vol():
@@ -67,7 +67,7 @@ def vol():
 
 @cmd
 def prev():
-    program.previous()
+    program._prev()
 
 @cmd
 def last():
