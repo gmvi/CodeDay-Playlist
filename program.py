@@ -86,7 +86,7 @@ def should_add_another():
 # No more bullshit! Yay!
 def pick_next():
     global artist_buffer, song_buffer
-    artists = database.get_artists()[:]
+    artists = database.artists[:]
     for artist in artist_buffer:
         try: artists.remove(artist)
         except ValueError: pass
@@ -117,7 +117,7 @@ def pick_next():
 #To do: leverage gevent, since I'm already using it for socket.io
 def music_picker_loop():
     global RUNNING, do
-    if not database.get_artists():
+    if not database.artists:
         print "No artists!"
         shut_down()
         return

@@ -18,6 +18,7 @@ class NoRootError(Exception): pass
 # and path from os.curdir is called 'rel_path'.
 path_to_root = None
 root_join = lambda a: os.path.join(path_to_root, a)
+artists = []
 
 def get_contents_hash(path):
     contents = os.listdir(path)
@@ -35,8 +36,11 @@ class Folder(Base):
     root = Column(Boolean)
     
     parent_path = Column(String, ForeignKey('folders.path'))
-    parent = relationship("Folder", remote_side = 'Folder.path',
-                                    backref = 'children')
+    parent = relationship("Folder",
+                          remote_side = 'Folder.path',
+                          backref = backref('children',
+                                            lazy = 'joined'),
+                          lazy = 'joined')
     hash = Column(String)
 
     def __init__(self, path, parent = None):
@@ -90,9 +94,15 @@ class File(Base):
     album_artist = Column(String)
 
     artist_id = Column(Integer, ForeignKey("artists.id"))
-    artist_ref = relationship("Artist", backref='songs')
+    artist_ref = relationship("Artist",
+                    backref = backref('songs',
+                                      lazy = 'joined'),
+                              lazy = 'joined')
     parent_path = Column(String, ForeignKey("folders.path"))
-    parent = relationship("Folder", backref = 'files')
+    parent = relationship("Folder",
+                backref = backref('files',
+                                  lazy = 'joined'),
+                          lazy = 'joined')
 
     def __init__(self, path, parent = None):
         self.path = path
@@ -149,10 +159,11 @@ class Artist(Base):
                                            '' if len(self.songs) == 1 else 's')
 
 
-def connect(root_path):
-    global root, path_to_root, session, engine
+def connect(root_path, db_path = None):
+    global root, path_to_root, engine, artists
     path_to_root = root_path
-    db_path = 'sqlite:///' + root_join('cdp.db')
+    if not db_path:
+        db_path = 'sqlite:///' + root_join('cdp.db')
     engine = create_engine(db_path)
     engine.text_factory = str
     session = Session(bind = engine)
@@ -164,11 +175,14 @@ def connect(root_path):
         root = root_query.one()
     else:
         print "Builing database. This may take a while."
-        build()
-        
-def build():
+        build(session)
+    artists = session.query(Artist).all()
+    session.close()
+    session = None
+
+# must be called after tables have been created
+def build(session):
     global root
-    Base.metadata.create_all()
     root = Folder.build()
     session.add(root)
     session.commit()
@@ -216,16 +230,15 @@ def create_all(rel_path, file_path):
     file_path = util.path_relative_to(path_to_root, file_path)
     File(file_path, parent)
 
-def get_artists():
-    return session.query(Artist)
-
 def hard_reset():
-    global session
-    Base.metadata.drop_all()
-    session.close()
-    session = Session(bind = engine)
+    session = Session()
     print "Rebuilding database from scratch. This may take a while."
-    build()
+    Base.metadata.drop_all()
+    session.commit()
+    Base.metadata.create_all()
+    build(session)
+    artists = session.query(Artist).all()
+    session.close()
 
 def scan(wait_seconds = (0.1)):
     def _scan(item, dirty = []):
@@ -237,6 +250,3 @@ def scan(wait_seconds = (0.1)):
                 _scan(i, dirty)
         return dirty
     return _scan(root)
-
-if __name__ == "__main__":
-    connect('music/main')
