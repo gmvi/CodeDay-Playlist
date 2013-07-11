@@ -56,11 +56,11 @@ def path_relative_to(root, rel_path):
 
 def split(path):
     if type(path) is str:
-        path = (path,)
+        path = [path]
     first_split = os.path.split(path[0])
     if first_split[0] == '':
         return path
-    path = os.path.split(path[0]) + path[1:]
+    path[:1] = os.path.split(path[0])
     return split(path)
 
 # audio files

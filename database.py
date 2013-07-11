@@ -4,7 +4,8 @@ import util, organize
 from sqlalchemy import create_engine, event
 from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, backref
+from sqlalchemy.orm import sessionmaker, relationship, backref, \
+                           joinedload
 
 Base = declarative_base()
 Session = sessionmaker()
@@ -20,6 +21,7 @@ path_to_root = None
 root_join = lambda a: os.path.join(path_to_root, a)
 artists = []
 
+#safe
 def get_contents_hash(path):
     contents = os.listdir(path)
     mr_itchy = md5.md5()
@@ -27,8 +29,10 @@ def get_contents_hash(path):
         mr_itchy.update(node)
     return mr_itchy.hexdigest()
 
+#safe
 load_listener = lambda target, context: target.on_load()
 
+#externally safe unless stated
 class Folder(Base):
     __tablename__ = 'folders'
 
@@ -37,12 +41,11 @@ class Folder(Base):
     
     parent_path = Column(String, ForeignKey('folders.path'))
     parent = relationship("Folder",
-                          remote_side = 'Folder.path',
-                          backref = backref('children',
-                                            lazy = 'joined'),
-                          lazy = 'joined')
+                          remote_side="Folder.path",
+                          backref = "children")
     hash = Column(String)
 
+    #evaluate
     def __init__(self, path, parent = None):
         self.path = path
         self.rel_path = root_join(path)
@@ -50,8 +53,12 @@ class Folder(Base):
             self.parent = parent
         else:
             self.root = True
+        self.update_hash()
+
+    def update_hash(self):
         self.hash = get_contents_hash(self.rel_path)
-    
+
+    #evaluate
     @staticmethod
     def build(path = None, parent = None):
         rel_path = root_join(path or ".")
@@ -94,16 +101,10 @@ class File(Base):
     album_artist = Column(String)
 
     artist_id = Column(Integer, ForeignKey("artists.id"))
-    artist_ref = relationship("Artist",
-                    backref = backref('songs',
-                                      lazy = 'joined'),
-                              lazy = 'joined')
     parent_path = Column(String, ForeignKey("folders.path"))
-    parent = relationship("Folder",
-                backref = backref('files',
-                                  lazy = 'joined'),
-                          lazy = 'joined')
+    parent = relationship(Folder, backref = "files")
 
+    #evaluate
     def __init__(self, path, parent = None):
         self.path = path
         if parent:
@@ -122,15 +123,18 @@ class File(Base):
         self.rel_path = root_join(self.path)
         self.change_alerted = False
 
+    #safe
     def get_dict(self):
         return {'track' : self.track,
                 'album' : self.album,
                 'artist': self.artist}
 
+    #safe
     def check_fs(self):
         return os.path.exists(self.rel_path) \
                and os.path.getsize(self.rel_path) == self.size
 
+    #safe
     def on_load(self):
         self.rel_path = root_join(self.path)
 
@@ -147,7 +151,9 @@ class Artist(Base):
 
     id = Column(Integer, primary_key = True)
     name = Column(String)
+    songs = relationship("File", backref="artist_ref")
 
+    #evaluate
     def __init__(self, name):
         self.name = name
 
@@ -158,7 +164,7 @@ class Artist(Base):
         return "<Artist \"%s\" with %s song%s>" % (self.name, len(self.songs),
                                            '' if len(self.songs) == 1 else 's')
 
-
+#safe
 def connect(root_path, db_path = None):
     global root, path_to_root, engine, artists
     path_to_root = root_path
@@ -170,22 +176,21 @@ def connect(root_path, db_path = None):
     Base.metadata.bind = engine
     Base.metadata.create_all()
     print "Reading database."
-    root_query = session.query(Folder).filter(Folder.root == True)
-    if root_query.count():
-        root = root_query.one()
-    else:
+    root = load_root(session)
+    if not root:
         print "Builing database. This may take a while."
         build(session)
-    artists = session.query(Artist).all()
+        root = load_root(session)
+        session.commit()
+    artists = load_artists(session)
     session.close()
     session = None
 
 # must be called after tables have been created
+#internal
 def build(session):
-    global root
     root = Folder.build()
     session.add(root)
-    session.commit()
     for song in session.query(File).filter(File.supported == True):
         artist_query = session.query(Artist) \
                               .filter(Artist.name == song.album_artist)
@@ -195,58 +200,86 @@ def build(session):
             artist = Artist(song.album_artist)
             artist.songs.append(song)
             session.add(artist)
-            session.commit()
 
-def handle_dir(src, dst, delete = False):
-    def handle(src, dst, errors = []):
+#internal
+def add_dir(src, delete = False):
+    session = Session()
+    root = load_root(session)
+    def handle(src, errors = []):
         for f in map(lambda f: os.path.join(src, f), os.listdir(src)):
             if os.path.isdir(f):
-                errors = handle(f, dst, errors)
+                errors = handle(f, errors)
                 if not os.listdir(f):
                     os.rmdir(f)
             elif os.path.splitext(f)[1] in util.FORMATS:
-                rel_path, e = organize.moveFile(f, dst, delete)
+                file_path, e = organize.moveFile(f, path_to_root, delete)
                 if e:
-                    errors += (f, rel_path, e)
+                    errors += (f, file_path, e)
                 else:
-                    create_all(dst, rel_path)
+                    build_structure(session, file_path, root = root)
         return errors
-    return handle(src, dst)
+    errors = handle(src)
+    session.commit()
+    session.close()
+    return errors
 
-def create_all(rel_path, file_path):
-    print rel_path, file_path
-    path = util.path_relative_to(path_to_root, rel_path)
-    path = util.split(path)
+#internal
+def build_structure(session, file_path, root = None):
+    if not root: root = load_root(session)
+    path = util.path_relative_to(path_to_root, file_path)
+    pathsplit = util.split(path)
+    file_segment = pathsplit.pop()
     cumulative_path = ""
+    root.update_hash()
     parent = root
-    for segment in path:
+    for segment in pathsplit:
         cumulative_path = os.path.join(cumulative_path, segment)
         folder_q = session.query(Folder) \
                    .filter(Folder.path == cumulative_path)
         if folder_q.count():
-            parent = folder_q.one()
+            folder = folder_q.one()
+            folder.update_hash()
+            parent = folder
         else:
             parent = Folder(cumulative_path, parent)
-    file_path = util.path_relative_to(path_to_root, file_path)
-    File(file_path, parent)
+    File(path, parent)
 
+#internal
+def load_root(session):
+    query = session.query(Folder).filter(Folder.root == True) \
+                                 .options(joinedload("*"))
+    if query.count(): return query.one()
+
+#internal
+def load_artists(session):
+    query = session.query(Artist).options(joinedload("songs"))
+    if query.count(): return query.all()
+
+#external
 def hard_reset():
+    global root
     session = Session()
     print "Rebuilding database from scratch. This may take a while."
     Base.metadata.drop_all()
     session.commit()
     Base.metadata.create_all()
     build(session)
-    artists = session.query(Artist).all()
+    artists = load_artists(session)
+    root = load_root(session)
+    session.commit()
     session.close()
 
+#safe
 def scan(wait_seconds = (0.1)):
-    def _scan(item, dirty = []):
+    session = Session()
+    def scan(item, dirty = []):
         if not item.check_fs():
             dirty.append(item)
         time.sleep(wait_seconds)
         if type(item) == Folder:
             for i in item.children + item.files:
-                _scan(i, dirty)
+                scan(i, dirty)
         return dirty
-    return _scan(root)
+    dirty = scan(load_root(session))
+    session.close()
+    return dirty
