@@ -1,7 +1,7 @@
-Place modules here to make CodeDay-Playlist completely portable.
+Place modules here to make CodeDay-Playlist portable to any computer with python 2.7 (and possibly lower); for the time being, VLC media player must also be installed on the host computer for this software to function.
 
-modules you should have
-=======================
+Modules you should have:
+========================
 - flask (flask/)
 - gevent-socketio (socketio/)
   - gevent (gevent/)
@@ -12,4 +12,4 @@ modules you should have
 - python bindings for Libvlc (vlc.py)
 - SQLAlchemy (sqlalchemy/)
 
-More info here later
+*More info here later*

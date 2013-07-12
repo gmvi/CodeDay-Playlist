@@ -8,10 +8,7 @@ modules/*
 
 # db stuff
 music/*
-music/*/*
-!music/mainpool
-!music/special
-!music/*/README.md
+!music/README.md
 
 ## Auto
 *.py[cod]
