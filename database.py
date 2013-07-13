@@ -23,12 +23,12 @@ path_to_root = None
 root_join = lambda a: os.path.join(path_to_root, a)
 artists = []
 
-CONTENTS_IGNORE = ["cdp.db-journal"]
+CONTENTS_HASH_IGNORE = ["cdp.db-journal"]
 #safe
 def get_contents_hash(path):
     mr_itchy = md5.md5()
     contents = os.listdir(path)
-    for node in CONTENTS_IGNORE:
+    for node in CONTENTS_HASH_IGNORE:
         if node in contents:
             contents.remove(node)
     for node in contents:
@@ -331,7 +331,8 @@ def hard_reset():
 def scan(wait_seconds = (0.1)):
     session = Session()
     def scan(item, dirty = []):
-        if not item.check_fs():
+        if (type(item) != File or item.supported) \
+           and not item.check_fs():
             dirty.append(item)
         time.sleep(wait_seconds)
         if type(item) == Folder:
