@@ -9,8 +9,10 @@ from sqlalchemy.orm import sessionmaker, relationship, backref, \
 
 Base = declarative_base()
 Session = sessionmaker()
-class MultipleRootError(Exception): pass
-class NoRootError(Exception): pass
+class MultipleRootError(Exception):
+    def __init__(self, count):
+        message = "Error: expected one root Folder entry; found %s." % count
+        Exception.__init__(message)
 
 # Paths are stored in cdp.db databases as if cdp.db resided in os.curdir
 # In practice, the database is loaded from program.py, two levels above
@@ -21,10 +23,14 @@ path_to_root = None
 root_join = lambda a: os.path.join(path_to_root, a)
 artists = []
 
+CONTENTS_IGNORE = ["cdp.db-journal"]
 #safe
 def get_contents_hash(path):
-    contents = os.listdir(path)
     mr_itchy = md5.md5()
+    contents = os.listdir(path)
+    for node in CONTENTS_IGNORE:
+        if node in contents:
+            contents.remove(node)
     for node in contents:
         mr_itchy.update(node)
     return mr_itchy.hexdigest()
@@ -37,6 +43,8 @@ class Folder(Base):
     __tablename__ = 'folders'
 
     path = Column(String, primary_key = True)
+    def __eq__(self, other):
+        return self.path == other.path
     root = Column(Boolean)
     
     parent_path = Column(String, ForeignKey('folders.path'))
@@ -55,9 +63,6 @@ class Folder(Base):
             self.root = True
         self.update_hash()
 
-    def update_hash(self):
-        self.hash = get_contents_hash(self.rel_path)
-
     #evaluate
     @staticmethod
     def build(path = None, parent = None):
@@ -72,6 +77,9 @@ class Folder(Base):
             else:
                 node = Folder.build(node, folder)
         return folder
+
+    def update_hash(self):
+        self.hash = get_contents_hash(self.rel_path)
 
     def check_fs(self):
         return os.path.exists(self.rel_path) \
@@ -92,6 +100,8 @@ class File(Base):
     __tablename__ = 'files'
 
     path = Column(String, primary_key = True)
+    def __eq__(self, other):
+        return self.path == other.path
     supported = Column(Boolean)
     size = Column(BigInteger)
     
@@ -132,6 +142,7 @@ class File(Base):
     #safe
     def check_fs(self):
         return os.path.exists(self.rel_path) \
+               and self.supported \
                and os.path.getsize(self.rel_path) == self.size
 
     #safe
@@ -150,6 +161,8 @@ class Artist(Base):
     __tablename__ = 'artists'
 
     id = Column(Integer, primary_key = True)
+    def __eq__(self, other):
+        return self.id == other.id
     name = Column(String)
     songs = relationship("File", backref="artist_ref")
 
@@ -176,11 +189,11 @@ def connect(root_path, db_path = None):
     Base.metadata.bind = engine
     Base.metadata.create_all()
     print "Reading database."
-    root = load_root(session)
+    root = get_root(session)
     if not root:
         print "Builing database. This may take a while."
         build(session)
-        root = load_root(session)
+        root = get_root(session)
         session.commit()
     artists = load_artists(session)
     session.close()
@@ -192,19 +205,22 @@ def build(session):
     root = Folder.build()
     session.add(root)
     for song in session.query(File).filter(File.supported == True):
+        add_to_artist(session, song)
+
+def add_to_artist(session, file_object):
         artist_query = session.query(Artist) \
-                              .filter(Artist.name == song.album_artist)
+                              .filter(Artist.name == file_object.album_artist)
         if artist_query.count():
-            artist_query.one().songs.append(song)
+            artist_query.one().songs.append(file_object)
         else:
-            artist = Artist(song.album_artist)
-            artist.songs.append(song)
+            artist = Artist(file_object.album_artist)
+            artist.songs.append(file_object)
             session.add(artist)
 
 #internal
 def add_dir(src, delete = False):
     session = Session()
-    root = load_root(session)
+    root = get_root(session)
     def handle(src, errors = []):
         for f in map(lambda f: os.path.join(src, f), os.listdir(src)):
             if os.path.isdir(f):
@@ -224,8 +240,9 @@ def add_dir(src, delete = False):
     return errors
 
 #internal
+#rename
 def build_structure(session, file_path, root = None):
-    if not root: root = load_root(session)
+    if not root: root = get_root(session)
     path = util.path_relative_to(path_to_root, file_path)
     pathsplit = util.split(path)
     file_segment = pathsplit.pop()
@@ -242,13 +259,54 @@ def build_structure(session, file_path, root = None):
             parent = folder
         else:
             parent = Folder(cumulative_path, parent)
-    File(path, parent)
+    f = File(path, parent)
+    add_to_artist(session, f)
+
+#external
+def remove(file_object):
+    """Removes a file from the database. Updates the filesystem accordingly"""
+    if type(file_object) is not File:
+        raise TypeError("file_object must be of type database.File")
+    session = Session()
+    file_object = session.query(File).filter(File.path == file_object.path).one()
+    parent = file_object.parent
+    parent.files.remove(file_object)
+    artist = file_object.artist_ref
+    artist.songs.remove(file_object)
+    os.remove(file_object.rel_path)
+    session.delete(file_object)
+    parent = remove_if_empty(session, parent)
+    if parent: parent.update_hash() # parent is only none if root is removed
+    if len(artist.songs) == 0:
+        session.delete(artist)
+    session.commit()
+    session.close()
 
 #internal
-def load_root(session):
+def remove_if_empty(session, folder_object):
+    """Returns the parent of the highest-up removed folder.
+Returns the folder itself if not empty.
+Returns None if root is removed, which it shouldn't be."""
+    while len(os.listdir(folder_object.rel_path)) == 0:
+        parent = folder_object.parent
+        os.rmdir(folder_object.rel_path)
+        session.delete(folder_object)
+        folder_object = parent
+        if not folder_object: # This shouldn't happen, root is never empty
+            break             # because of cdp.db file.
+    return folder_object
+
+#internal
+def get_root(session):
     query = session.query(Folder).filter(Folder.root == True) \
-                                 .options(joinedload("*"))
-    if query.count(): return query.one()
+##                                 .options(joinedload("*"),
+##                                          joinedload("*.*")
+##                                          )
+    count = query.count()
+    if count == 1:
+        return query.one()
+    elif count > 1:
+        raise MultipleRootError(query.count())
 
 #internal
 def load_artists(session):
@@ -264,9 +322,9 @@ def hard_reset():
     session.commit()
     Base.metadata.create_all()
     build(session)
-    artists = load_artists(session)
-    root = load_root(session)
     session.commit()
+    artists = load_artists(session)
+    root = get_root(session)
     session.close()
 
 #safe
@@ -280,6 +338,6 @@ def scan(wait_seconds = (0.1)):
             for i in item.children + item.files:
                 scan(i, dirty)
         return dirty
-    dirty = scan(load_root(session))
+    dirty = scan(get_root(session))
     session.close()
     return dirty
