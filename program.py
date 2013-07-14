@@ -204,14 +204,14 @@ def update():
 def set_up_webserver():
     global webserver_process, webserver_sock
     cmd = 'python ' + os.path.join(base, "webserver.py")
-    print "checking for webserver"
     webserver_sock.on_connect(webserver_on_connect_callback)
     webserver_sock.on_disconnect(webserver_on_disconnect_callback)
     webserver_sock.listen('localhost', SOCK_PORT, webserver_on_message_callback)
-    sleep(1)
     print "starting webserver"
     webserver_process = subprocess.Popen(cmd, shell = True, stdout=logfile, \
                                          stderr=subprocess.STDOUT)
+
+# command to restart webserver
 
 ### CONSOLE INTERFACE
 
@@ -254,9 +254,23 @@ def console():
 
 ### MAIN
 
+illegal_chars = ["/", "\\"]
+def validate(path):
+    if not path: return False
+    for character in set(path):
+        if character in illegal_chars:
+            return False
+    return True
+
 def main():
     global console_thread, db_path
-    db_path = os.path.join("music", raw_input("playlist: "))
+    path = ""
+    while not path:
+        path = raw_input("playlist: ")
+        if not validate(path):
+            print "Bad playlist identifier!"
+            path = ""
+    db_path = os.path.join("music", path)
     database.connect(db_path)
     set_up_webserver()
     if not IDLE:

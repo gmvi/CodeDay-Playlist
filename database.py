@@ -135,7 +135,7 @@ class File(Base):
 
     #safe
     def get_dict(self):
-        return {'track' : self.track,
+        return {'title' : self.track,
                 'album' : self.album,
                 'artist': self.artist}
 

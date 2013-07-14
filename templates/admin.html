@@ -2,17 +2,32 @@
   <head>
     <title>CodeDay Playlist Admin Panel</title>
     <style type='text/css'>
-    #main, #main *
+    body
     { text-align:center;
-      text-size: 18pt;
+    }
+    #controls > button
+    { text-size: 18pt;
     }
     </style>
+    <script type="text/javascript" src="/static/socket.io.min.js"></script>
+    <script type="text/javascript" src="/static/jquery.min.js"></script>
+    <script type="text/javascript" src="/static/trackUpdate.js?nocache"></script>
+    <script type="text/javascript">
+    controlSocket = io.connect('/control');
+    controlSocket.on('error', function(message)
+    { console.log("Error: " + message);
+    });
+    </script>
   </head>
   <body>
-    <div id=main>
-      <button>&lt;&lt;</button>
-      <button>&gt;</button>
-      <button>&gt;&gt;</button>
+    <div id=info>
+      <span id=track-title></span><br>
+      <span id=track-artist></span>
+    </div>
+    <div id=controls>
+      <button onclick="controlSocket.emit('command','previous');">&lt;&lt;</button>
+      <button onclick="controlSocket.emit('command','pause');">&gt;</button>
+      <button onclick="controlSocket.emit('command','next');">&gt;&gt;</button>
     </div>
   </body>
 </html>
