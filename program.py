@@ -6,15 +6,13 @@ from time import sleep
 
 from vlc import State
 from libvlc_controller import VLCController
-import database
-from commands import commands
+import database, console
 from util import bufferlist, Socket, load_settings
 load_settings()
 
 ## CONSTANTS
 
-from settings import ARTIST_BUFFER_SIZE, SONG_BUFFER_SIZE, TIME_CUTOFF_MS, \
-     LOOP_PERIOD_SEC, DEBUG, BROADCAST, SHUTDOWN_KEY, LOG_LOCATION
+from settings import *
 lan_addr = socket.gethostbyname(socket.gethostname())
 IDLE = 'idlelib' in sys.modules
 
@@ -76,14 +74,8 @@ def get_remaining():
     raise TrackNotFoundError(songpath)
 
 def should_add_another():
-    if get_remaining() != 0:
-        return False
-    media = v.media_player.get_media()
-    if media:
-        return media.get_duration() - \
-               v.media_player.get_time() < TIME_CUTOFF_MS
+    return get_remaining() == 0
 
-# No more bullshit! Yay!
 def pick_next():
     global artist_buffer, song_buffer
     artists = database.artists[:]
@@ -114,7 +106,7 @@ def pick_next():
     song_buffer.append(song)
     v.add(os.path.join(db_path, song.path))
 
-#To do: leverage gevent, since I'm already using it for socket.io
+#To do: leverage gevent, since I'm already using it for socket-io?
 def music_picker_loop():
     global RUNNING, do
     if not database.artists:
@@ -130,25 +122,14 @@ def music_picker_loop():
         pass
     current = ""
     while RUNNING:
-        if v.get_media_path() != current: #split into another thread?
+        if v.get_media_path() != current:
             update()
             current = v.get_media_path()
-        if do:
-            if do == NEXT:
-                next()
-            elif do == PREV:
-                previous()
-            do = NONE
-        if v.should_reset_broadcast(): v.reset_broadcast()
+        if v.should_reset_broadcast():
+            v.reset_broadcast()
         if should_add_another():
             pick_next()
-            time_left = (v.media_player.get_length() \
-                         - v.media_player.get_time()) / 1000.0
-            sleep(time_left+.01)
-            if not v.is_playing():
-                v.play_last()
-        else:
-            sleep(LOOP_PERIOD_SEC)
+        sleep(LOOP_PERIOD_SEC)
 
 def next():
     if not v.has_next():
@@ -160,7 +141,7 @@ def _next():
     global do
     do = NEXT
 
-def previous():
+def prev():
     if v.has_previous():
         v.previous()
         update()
@@ -173,15 +154,17 @@ def _prev():
 
 ### WEBSERVER
 
+admin_commands = {'next' : next,
+                  'pause' : v.pause,
+                  'previous' : prev,
+                  'last' : v.play_last}
+
 def webserver_on_message_callback(message):
     j = json.loads(message)
     if j['type'] == 'command':
-        if j['data'] == 'next':
-            _next()
-        elif j['data'] == 'pause':
-            v.pause()
-        elif j['data'] == 'previous':
-            _prev()
+        if DEBUG: print "recieved command %s" % j['data']
+        if j['data'] in admin_commands:
+            admin_commands[j['data']]()
     elif j['type'] == 'info':
         print "webserver running on %s" % j['data']
 
@@ -237,21 +220,6 @@ def shut_down():
     if DEBUG: raw_input()
     exit()
 
-def console():
-    cmd = None
-    while True:
-        tokens = raw_input().split(" ", 1)
-        cmd = tokens[0]
-        args = tokens[1] if len(tokens) == 2 else ""
-        if cmd == "quit":
-            break
-        elif cmd in commands:
-            p = commands[cmd](args)
-            if p: print p
-        elif cmd:
-            print "'%s' is not a command." % cmd
-    shut_down()
-
 ### MAIN
 
 illegal_chars = ["/", "\\"]
@@ -273,10 +241,9 @@ def main():
     db_path = os.path.join("music", path)
     database.connect(db_path)
     set_up_webserver()
-    if not IDLE:
-        console_thread = threading.Thread(target=console)
-        console_thread.start()
-    music_picker_loop()
+    music_thread = threading.Thread(target=music_picker_loop)
+    music_thread.start()
+    console.run()
 
 if __name__ == '__main__':
     main()

@@ -7,7 +7,6 @@
 
 ARTIST_BUFFER_SIZE = 4 # min playlist space between tracks by same artist.
 SONG_BUFFER_SIZE = 30 # min playlist space between same track.
-TIME_CUTOFF_MS = 2000 # time away from end of last song to add another to list.
 LOOP_PERIOD_SEC = 1
 DEBUG = False
 BROADCAST = False

@@ -6,7 +6,7 @@
     { text-align:center;
     }
     #controls > button
-    { text-size: 18pt;
+    { 
     }
     </style>
     <script type="text/javascript" src="/static/socket.io.min.js"></script>
@@ -17,6 +17,9 @@
     controlSocket.on('error', function(message)
     { console.log("Error: " + message);
     });
+    function sendCommand(command)
+    { controlSocket.emit('command', command);
+    }
     </script>
   </head>
   <body>
@@ -25,9 +28,10 @@
       <span id=track-artist></span>
     </div>
     <div id=controls>
-      <button onclick="controlSocket.emit('command','previous');">&lt;&lt;</button>
-      <button onclick="controlSocket.emit('command','pause');">&gt;</button>
-      <button onclick="controlSocket.emit('command','next');">&gt;&gt;</button>
+      <button onclick="sendCommand('previous');">&lt;&lt;</button>
+      <button onclick="sendCommand('pause');">&gt;</button>
+      <button onclick="sendCommand('next');">&gt;&gt;</button>
+      <button onclick="sendCommand('last');">&gt;|</button>
     </div>
   </body>
 </html>

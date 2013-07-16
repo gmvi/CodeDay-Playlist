@@ -64,16 +64,13 @@ class ControlNamespace(BaseNamespace):
         cls.control_socket = control_sock
             
     def on_command(self, message):
-        if message in ['next', 'pause', 'previous']:
-            if DEBUG: print "sending command '%s' to program" % message
-            j = json.dumps({"type" : "command",
-                            "data" :  message})
-            try:
-                self.control_socket.sendln(j)
-            except ValueError:
-                self.emit('error', "no program to control")
-        else:
-            self.emit('error', 'not a command')
+        if DEBUG: print "sending command '%s' to program" % message
+        j = json.dumps({"type" : "command",
+                        "data" :  message})
+        try:
+            self.control_socket.sendln(j)
+        except ValueError:
+            self.emit('error', "no program to control")
 
 class TrackInfoNamespace(BroadcastNamespace):
     track = None
@@ -93,6 +90,8 @@ class TrackInfoNamespace(BroadcastNamespace):
             self.emit('track', json.dumps(self.track))
         else:
             self.emit('error', 'Unknown request: %s' % message)
+
+
 
 # Communitcation with program.py over localhost Socket
 def on_message(message):
