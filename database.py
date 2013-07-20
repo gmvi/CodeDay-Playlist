@@ -122,10 +122,12 @@ class File(Base):
         if util.is_supported(root_join(path)):
             self.supported = True
             tags = util.get_metadata(root_join(path))
-            self.artist = tags[0]
-            self.album_artist = tags[1]
-            self.album = tags[2]
-            self.track = tags[3]
+            self.artist = tags['artist']
+            self.album_artist = tags['performer']
+            if not self.album_artist:
+                self.album_artist = self.artist
+            self.album = tags['album']
+            self.track = tags['title']
         else:
             self.supported = False
         self.size = os.path.getsize(root_join(self.path))
@@ -185,7 +187,8 @@ def connect(root_path, db_path = None):
         db_path = 'sqlite:///' + root_join('cdp.db')
     engine = create_engine(db_path)
     engine.text_factory = str
-    session = Session(bind = engine)
+    Session.configure(bind=engine)
+    session = Session()
     Base.metadata.bind = engine
     Base.metadata.create_all()
     print "Reading database."
@@ -208,17 +211,18 @@ def build(session):
         add_to_artist(session, song)
 
 def add_to_artist(session, file_object):
-        artist_query = session.query(Artist) \
-                              .filter(Artist.name == file_object.album_artist)
-        if artist_query.count():
-            artist_query.one().songs.append(file_object)
-        else:
-            artist = Artist(file_object.album_artist)
-            artist.songs.append(file_object)
-            session.add(artist)
+    artist_query = session.query(Artist) \
+                          .filter(Artist.name == file_object.album_artist)
+    if artist_query.count():
+        artist_query.one().songs.append(file_object)
+    else:
+        artist = Artist(file_object.album_artist)
+        artist.songs.append(file_object)
+        session.add(artist)
 
 #internal
 def add_dir(src, delete = False):
+    global artists
     session = Session()
     root = get_root(session)
     def handle(src, errors = []):
@@ -236,6 +240,7 @@ def add_dir(src, delete = False):
         return errors
     errors = handle(src)
     session.commit()
+    artists = load_artists(session)
     session.close()
     return errors
 
@@ -243,6 +248,8 @@ def add_dir(src, delete = False):
 #rename
 def build_structure(session, file_path, root = None):
     if not root: root = get_root(session)
+    print "path to root: " + path_to_root
+    print "file_path: " + file_path
     path = util.path_relative_to(path_to_root, file_path)
     pathsplit = util.split(path)
     file_segment = pathsplit.pop()

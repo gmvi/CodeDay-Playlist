@@ -3,15 +3,22 @@ if 'modules' not in sys.path: sys.path.append('modules')
 from socketio import socketio_manage
 from socketio.server import SocketIOServer
 from socketio.namespace import BaseNamespace
-from flask import Flask, request, render_template, abort
-from util import BroadcastNamespace, Socket, load_settings
-load_settings()
+from flask import Flask, request, redirect, render_template, abort
+from werkzeug import secure_filename
+import base64
+import util
+from util import BroadcastNamespace, Socket
+util.load_settings()
 from settings import DEBUG, SHUTDOWN_KEY
 
 app = Flask(__name__)
 app.debug = True
 sock = Socket()
 SOCK_PORT = 2148
+
+def allowed_file(filename):
+    split = filename.rsplit('.', 1)
+    return len(split) > 1 and split[1] in ['mp3', 'ogg', 'flac', 'm4a']
 
 # To shut down the server.
 @app.route('/shutdown', methods=['GET', 'POST'])
@@ -34,11 +41,102 @@ def my_debug(func):
 
 @app.route('/')
 def track_page():
-    return render_template('track.html')
+    return render_template('track.html',
+                           title = TrackInfoNamespace.track['title'],
+                           artist = TrackInfoNamespace.track['artist'])
+
+def send_upload(key):
+    try:
+        sock.sendln(json.dumps({"type":"upload",
+                              "data":key}))
+    except Socket.NotConnectedException:
+        print "No program to signal!\nkey = " + key
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'file' in request.files:
+        file = request.files['file']
+    else:
+        redirect("/")
+    if allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        key = base64.urlsafe_b64encode(os.urandom(9))
+        path = os.path.join('music', 'temp', key)
+        os.mkdir(path)
+        path = os.path.join(path, filename)
+        file.save(path)
+        if valid_metadata(path):
+            send_upload(key)
+            return redirect("/")
+        else:
+            return redirect("/metadata?key=%s&filename=%s" % (key, filename))
+    else:
+        return redirect("/?error=extension")
+
+def translate(datum):
+    if datum == "performer":
+        datum = "album artist"
+    return datum
+required = ['title', 'artist']
+def get_metadata(path):
+    metadata = util.get_metadata(path)
+    metadata2 = []
+    for datum in metadata:
+        metadata2.append({"friendly_name" : translate(datum),
+                          "name"          : datum,
+                          "value"         : metadata[datum],
+                          "required"      : datum in required})
+    return metadata2
+
+def valid_metadata(path):
+    metadata = util.get_metadata(path)
+    return bool(metadata['title'] and metadata['artist'])
+
+class BadKeyError(Exception): pass
+def check_key(key, filename):
+    if key != secure_filename(key):
+        raise BadKeyError("key")
+    if filename != secure_filename(filename):
+        raise BadKeyError("filename")
+    if not os.path.exists(os.path.join("music", "temp", key, filename)):
+        raise BadKeyError("path")
+
+@app.route('/metadata', methods=['GET', 'POST'])
+def metadata():
+    if request.method == "POST":
+        key = request.form["key"]
+        filename = request.form["filename"]
+    else:
+        key = request.args.get("key")
+        filename = request.args.get("filename")
+        if not key or not filename:
+            return redirect("/")
+    try:
+        check_key(key, filename)
+    except BadKeyError as e:
+        print e
+        return redirect("/")
+
+    path = os.path.join("music", "temp", key, filename)
+    if request.method == "POST":
+        util.overwrite_metadata(path,
+                                artist = request.form['artist'],
+                                performer = request.form['performer'],
+                                album = request.form['album'],
+                                title = request.form['title'])
+        send_upload(key)
+        return redirect("/")
+    else:
+        metadata = get_metadata(path)
+        return render_template('metadata.html', metadata = metadata,
+                                                key = key,
+                                                filename = filename)
 
 @app.route('/admin')
 def admin_page():
-    return render_template('admin.html')
+    return render_template('admin.html',
+                           title = TrackInfoNamespace.track['title'],
+                           artist = TrackInfoNamespace.track['artist'])
 
 # Socket endpoint
 @app.route('/socket.io/<path:rest>')
@@ -90,7 +188,6 @@ class TrackInfoNamespace(BroadcastNamespace):
             self.emit('track', json.dumps(self.track))
         else:
             self.emit('error', 'Unknown request: %s' % message)
-
 
 
 # Communitcation with program.py over localhost Socket

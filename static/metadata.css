@@ -1,0 +1,28 @@
+h2
+{ text-align: center;
+}
+.red
+{ color: red;
+}
+.center
+{ margin-left: auto;
+  margin-right: auto;
+}
+#main, 
+#main table
+{ width: 400px;
+}
+#main-table td.title
+{ width: 25%;
+  text-align: right;
+  font-weight: bold;
+}
+#main-table td.input
+{ width: 75%;
+}
+#main-table td.input > input
+{ width: 100%;
+}
+#submit
+{ margin-left: 170px;
+}

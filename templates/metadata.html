@@ -1,0 +1,39 @@
+<html>
+  <head>
+    <title>Edit Metadata</title>
+    <link rel="stylesheet" type="text/css" href="/static/metadata.css">
+    <script type="text/javascript" src="/static/jquery.min.js"></script>
+    <script type="text/javascript">
+      function submit_click()
+      { $("#main-form").submit();
+      }
+    </script>
+  </head>
+  <body>
+    <h2>Edit Metadata</h2>
+    <div id=main class=center>
+      <form id=main-form action=metadata method=post>
+        <table id=main-table>
+         {% for datum in metadata %}
+          <tr>
+            <td class=title>
+              {{ datum.friendly_name }}
+              {%- if datum.required -%}
+               <span class=red>*</span>
+              {% else %}
+               <span>&nbsp;</span>
+              {% endif %}:
+            </td>
+            <td class=input>
+              <input name="{{datum.name}}" value="{{datum.value}}">
+            </td>
+          </tr>
+         {% endfor %}
+        </table>
+        <input type=hidden name=key value={{key}}>
+        <input type=hidden name=filename value={{filename}}>
+      </form>
+      <button id=submit onclick="submit_click();">Submit</button>
+    </div>
+  </body>
+</html>

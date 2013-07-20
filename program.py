@@ -167,6 +167,13 @@ def webserver_on_message_callback(message):
             admin_commands[j['data']]()
     elif j['type'] == 'info':
         print "webserver running on %s" % j['data']
+    elif j['type'] == 'upload':
+        print "received upload"
+        path = os.path.join("music", "temp", j['data'])
+        errors = database.add_dir(path, delete = True)
+        for e in errors:
+            print e
+        
 
 def webserver_on_connect_callback():
     print "connected to webserver"

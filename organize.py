@@ -7,7 +7,7 @@ from mutagen.oggvorbis import OggVorbis
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.flac import FLAC
 
-from util import UnsupportedFileTypeError, FORMATS, get_info
+from util import UnsupportedFileTypeError, FORMATS, get_metadatum as get_info
 
 errors = []
 
@@ -21,6 +21,7 @@ PATTERNS = [("music/2ampool", "music/2am"),
 
 ## /SETTINGS
 
+# trackFormat(n): takes a string; prepends with "0" if single char.
 trackFormat = lambda number: "0"*(len(number)==1) + number
 
 def sanitize(string):

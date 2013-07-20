@@ -3,19 +3,39 @@
     <title>CodeDay Playlist</title>
     <style>
     body
-    { text-align:center;
+    { text-align: center;
+    }
+    .hidden
+    { width: 0px;
+      height: 0px;
+      overflow: hidden;
     }
     </style>
     <script type="text/javascript" src="/static/socket.io.min.js"></script>
     <script type="text/javascript" src="/static/jquery.min.js"></script>
     <script type="text/javascript" src="/static/trackUpdate.js?nocache"></script>
+    <script type="text/javascript">
+    $(document).ready(function(event)
+    { $('#file').change(function(event)
+      { $('#form').submit();
+      });
+    });
+    </script>
   </head>
   <body>
+    <div class=hidden>
+      <form id=form action=upload method=post enctype="multipart/form-data">
+        <input id=file name=file type=file>
+      </form>
+    </div>
     <div id=info>
       <h1 id=track-heading>Current Track</h1>
       <br/>
-      <h2 id=track-title></h2>
-      <h3 id=track-artist></h3>
+      <h2 id=track-title>{{title}}</h2>
+      <h3 id=track-artist>{{artist}}</h3>
+    </div>
+    <div id=buttons>
+      <button id=upload-button onclick="$('#file').click();">^</button>
     </div>
   </body>
 </html>

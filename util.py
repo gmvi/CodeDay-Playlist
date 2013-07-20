@@ -47,21 +47,19 @@ def get_all(path):
     return ret
 
 def path_relative_to(root, rel_path):
-	root = split(root)
-	rel_path = split(rel_path)
-	if rel_path[:len(root)] == root:
-		return os.path.sep.join(rel_path[len(root):])
-	else:
-		raise ValueError()
+    root = split(root)
+    rel_path = split(rel_path)
+    if rel_path[:len(root)] == root:
+        return os.path.sep.join(rel_path[len(root):])
+    else:
+        raise ValueError()
 
 def split(path):
-    if type(path) is str:
-        path = [path]
-    first_split = os.path.split(path[0])
-    if first_split[0] == '':
-        return path
-    path[:1] = os.path.split(path[0])
-    return split(path)
+    path = path.split("\\")
+    path2 = []
+    for seg in path:
+        path2 += seg.split("/")
+    return path2
 
 # audio files
 
@@ -70,13 +68,7 @@ FORMATS = {".mp3"  : EasyMP3,
            ".ogg"  : OggVorbis,
            ".flac" : FLAC}
 
-def get_info(audio, info):
-    if audio.has_key(info):
-        if type(audio[info]) == bool: return audio[info]
-        else: return audio[info][0]
-    else: return ""
-
-def get_metadata(filepath):
+def open_audio_file(filepath):
     ext = os.path.splitext(filepath)[1]
     if ext not in FORMATS:
         raise UnsupportedFileTypeError()
@@ -87,86 +79,29 @@ def get_metadata(filepath):
         audio.add_tags()
         audio.save()
         audio = EasyMP3(filepath)
-    artist = get_info(audio, 'artist')
-    album_artist = get_info(audio, 'performer') or artist
-    album = get_info(audio, 'album')
-    title = get_info(audio, 'title')
-    return (artist,
-            album_artist,
-            album,
-            title)
+    return audio
+
+def get_metadatum(audio, metadatum):
+    if audio.has_key(metadatum):
+        if type(audio[metadatum]) == bool: return audio[metadatum]
+        else: return audio[metadatum][0]
+    else: return ""
+
+def get_metadata(filepath):
+    audio = open_audio_file(filepath)
+    artist = get_metadatum(audio, 'artist')
+    return {"artist" : artist,
+            "performer" : get_metadatum(audio, 'performer'),
+            "album": get_metadatum(audio, 'album'),
+            "title" : get_metadatum(audio, 'title')}
+
+def overwrite_metadata(filepath, **kwargs):
+    audio = open_audio_file(filepath)
+    for kwarg in kwargs:
+        audio[kwarg] = kwargs[kwarg]
+    audio.save()
 
 ## Utility Classes
-
-###obsolete
-##class Artist():
-##    
-##    def __init__(self, path, name = None):
-##        self.path = path
-##        self.name = name or ""
-##        self.songs = []
-##
-##    @staticmethod
-##    def convert(object):
-##        try:
-##            a = Artist(object.path)
-##            a.name = object.name
-##            a.songs = object.songs
-##        except:
-##            raise Exception("failed")
-##
-##    def add(self, track):
-##        self.songs.append(track)
-##
-##    def remove(self, track):
-##        self.songs.remove(track)
-##
-##    def __eq__(self, other):
-##        return (self.name, self.path) == (other.name, other.path)
-##
-##    def __str__(self):
-##        return "<Artist: %s>" % self.name
-##
-##    def __repr__(self):
-##        return "Artist(%s)" % self.path
-##
-###obsolete
-##class Track():
-##
-##    def __init__(self, path = None):
-##        self.path = path
-##        if path == None:
-##            self.track = None
-##            self.album = None
-##            self.artist= None
-##        else:
-##            self.track, self.album, self.artist = get_all_info(path)
-##
-##    @staticmethod
-##    def convert(object):
-##        try:
-##            t = Track()
-##            t.path, t.track, t.album, t.artist = (object.path,
-##                                                  object.track,
-##                                                  object.album,
-##                                                  object.artist)
-##        except:
-##            raise Exception("failed")
-##
-##    def __eq__(self, other):
-##        return self.path == other.path
-##
-##    def __str__(self):
-##        return "<Track: %s by %s>" % (self.track, self.artist)
-##
-##    def __repr__(self):
-##        return "Track(%s)" % self.path
-##
-##    def get_dict(self):
-##        return {'track' : self.track,
-##                'album' : self.album,
-##                'artist': self.artist}
-
 class bufferlist(list):
     buffer_size = 0
     def insert(index, object): raise NotImplementedError()
