@@ -1,4 +1,4 @@
-import os, sys, time, socket, threading, json
+import os, sys, time, socket, threading, json, warnings
 if 'modules' not in sys.path: sys.path.insert(0, 'modules')
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
@@ -118,16 +118,20 @@ class bufferlist(list):
         if len(self) > self.buffer_size:
             self.pop(0)
 
+#TODO: support wait_for(Socket.SIGNAL_CONNECT) and SIGNAL_DISCONNECT
 class Socket():
     class NotConnectedException(Exception): pass
-    MODE_READY = MODE_NONE = 0
-    MODE_LISTENING = 1
-    MODE_ACCEPTED = 2
-    MODE_CONNECTING = 3
-    MODE_CONNECTED = 4
-    MODE_ERROR = 5
+    MODE_READY = MODE_NONE = 2**1
+    MODE_LISTENING = 2**2
+    MODE_ACCEPTED = 2**3
+    MODE_CONNECTING = 2**4
+    MODE_CONNECTED = 2**5
+    MODE_ERROR = 2**6
     MODES_CAN_SEND = [MODE_ACCEPTED,
                       MODE_CONNECTED]
+    SIGNAL_CONNECT = 2**7
+    SIGNAL_DISCONNECT = 2**8
+    SIGNAL_MESSAGE = 2**9
     
     def can_send(self):
         return self._mode in Socket.MODES_CAN_SEND
@@ -141,31 +145,91 @@ class Socket():
         self._alive = True
         self._mode = Socket.MODE_NONE
         self._thread = None
+        self.callbacks = {}
+        self.waits = {}
 
-    def reset(self):
-        self.message_callback = None
+    def kill(self):
         self._alive = False
         while self._thread and self._thread.isAlive():
             sleep(.5)
-        self._alive = True
-        self._mode = Socket.MODE_NONE
-        self._sock = None
-        self._sock2 = None
-        self._thread = None
 
-    def on_connect(self, connect_callback):
-        self.connect_callback = connect_callback
+    #on_connect callback must take no arguments
+    def on_connect(self, callback):
+        self.connect_callback = callback
+    def remove_on_connect(self):
+        self.connect_callback = None
 
-    def on_disconnect(self, disconnect_callback):
-        self.disconnect_callback = disconnect_callback
+    #on_disconnect callback must take no arguments
+    def on_disconnect(self, callback):
+        self.disconnect_callback = callback
+    def remove_on_disconnect(self):
+        self.disconnect = None
+
+    #on_message callback must take a string argument
+    def on_message(self, callback):
+        self.message_callback = callback
+    def remove_on_message(self):
+        self.message_callback = None
+
+    #on callback must take a single argument, which may be any valid JSON
+    #attribute type (unicode, int, list, or dict)
+    def on(self, type, callback):
+        if not issubclass(basestring, type):
+            raise TypeError("type should be string")
+        self.callbacks[type] = callback
+    def remove_on(self, type):
+        if type in self.callbacks:
+            del self.callbacks[type]
+
+    #on_other callback must take a string argument and a JSON-attribute argument
+    def on_other(self, callback):
+        self.other_callback = callback
+    def remove_on_other(self):
+        self.other_callback = None
+
+    def wait_for(self, type):
+        key = base64.b64encode(os.urandom(3))
+        if type not in self.waits:
+            self.waits[type] = {}
+        self.waits[type][key] = None
+        while self._alive and not self.waits[type][key]:
+            sleep(.5)
+        data = self.waits[type][key]
+        del self.waits[type][key]
+        if type == Socket.SIGNAL_CONNECT or \
+           type == Socket.SIGNAL_DISCONNECT:
+            return
+        else:
+            return data
+
+    def _handle(self, message):
+        if Socket.SIGNAL_MESSAGE in self.waits:
+            for key in self.waits[Socket.SIGNAL_MESSAGE]:
+                self.waits[Socket.SIGNAL_MESSAGE][key] = message
+        if self.message_callback:
+            self.message_callback(message)
+        try:
+            obj = json.loads(message)
+            if 'type' not in obj or 'data' not in obj:
+                break
+            type = obj['type']
+            data = obj['data']
+            if type in self.waits:
+                for key in self.waits[type]:
+                    self.waits[type][key] = data
+            if type in self.callbacks:
+                self.callbacks[type](data)
+            else:
+                self.other_callback(type, data)
+        except ValueError:
+            pass
         
-    def listen(self, ip_addr, port, on_message = None):
+    def listen(self, ip_addr, port):
         if self._mode != Socket.MODE_NONE:
             return ValueError("Socket object already in use. Call Socket.reset() to reset Socket")
         self._sock2 = socket.socket()
         self._sock2.bind((ip_addr, port))
         self._sock2.listen(1)
-        if on_message != None: self.message_callback = on_message
         def accept():
             self._sock2.settimeout(1)
             while self._alive:
@@ -176,7 +240,11 @@ class Socket():
                     continue
                 self._sock.settimeout(1)
                 self._mode = Socket.MODE_ACCEPTED
-                if self.connect_callback != None: self.connect_callback()
+                if self.connect_callback: self.connect_callback()
+                sig = Socket.SIGNAL_CONNECT
+                if sig in self.waits:
+                    for key in self.waits[sig]:
+                        self.waits[sig] = True
                 message = ""
                 while self._alive:
                     try:
@@ -189,9 +257,13 @@ class Socket():
                     if r == "":
                         break
                     if r == "\n":
-                        if self.message_callback != None: self.message_callback(message)
+                        _handle(message)
                         message = ""
-                self.disconnect_callback()
+                if self.disconnect_callback: self.disconnect_callback()
+                sig = Socket.SIGNAL_DISCONNECT
+                if sig in self.waits:
+                    for key in self.waits[sig]:
+                        self.waits[sig] = True
         self._thread = threading.Thread(target=accept)
         self._thread.start()
 
@@ -212,7 +284,11 @@ class Socket():
                     sleep(5, while_true = lambda: self._alive)
                     continue
                 self._mode = Socket.MODE_CONNECTED
-                if self.connect_callback != None: self.connect_callback()
+                if self.connect_callback: self.connect_callback()
+                sig = Socket.SIGNAL_CONNECT
+                if sig in self.waits:
+                    for key in self.waits[sig]:
+                        self.waits[sig] = True
                 message = ""
                 while self._alive:
                     try:
@@ -225,23 +301,33 @@ class Socket():
                     if r == "":
                         break
                     if r == "\n":
-                        if self.message_callback != None:
-                            self.message_callback(message)
+                        _handle(message)
                         message = ""
-                self.disconnect_callback()
+                if self.disconnect_callback: self.disconnect_callback()
+                sig = Socket.SIGNAL_DISCONNECT
+                if sig in self.waits:
+                    for key in self.waits[sig]:
+                        self.waits[sig] = True
                 self._sock = socket.socket()
                 self._sock.settimeout(1)
         self._thread = threading.Thread(target=connect)
         self._thread.start()
 
-    def send(self, message):
+    def send_message(self, message):
+        pos = message.find("\n")
+        if pos == -1:
+            message += "\n"
+        elif pos < len(message)-1:
+            raise ValueError("Individual messages must be sent using individual 'send_message' calls.")
         if self._mode in Socket.MODES_CAN_SEND:
             self._sock.send(message)
         else:
             raise Socket.NotConnectedException(self._mode)
 
-    def sendln(self, message = ""):
-        self.send(message+"\n")
+    def send(self, type, serializable):
+        string = json.dumps({"type" : type,
+                             "data" : serializable})
+        self.send_message(string)
 
 class BroadcastNamespace(BaseNamespace):
     sockets = []
