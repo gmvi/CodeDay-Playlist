@@ -1,4 +1,4 @@
-import os, sys, time, socket, threading, json, warnings
+import os, sys, time, socket, threading, json, warnings, base64
 if 'modules' not in sys.path: sys.path.insert(0, 'modules')
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
@@ -120,23 +120,30 @@ class bufferlist(list):
 
 #TODO: support wait_for(Socket.SIGNAL_CONNECT) and SIGNAL_DISCONNECT
 class Socket():
-    class NotConnectedException(Exception): pass
-    MODE_READY = MODE_NONE = 2**1
-    MODE_LISTENING = 2**2
-    MODE_ACCEPTED = 2**3
-    MODE_CONNECTING = 2**4
-    MODE_CONNECTED = 2**5
-    MODE_ERROR = 2**6
+    class SocketException(Exception): pass
+    class NotConnectedException(SocketException): pass
+    class PortInUseException(SocketException): pass
+
+    __sockets = []
+    
+    MODE_READY = MODE_NONE = 0
+    MODE_LISTENING = 1
+    MODE_ACCEPTED = 2
+    MODE_CONNECTING = 3
+    MODE_CONNECTED = 4
+    MODE_ERROR = 5
+    MODE_DEAD = 6
     MODES_CAN_SEND = [MODE_ACCEPTED,
                       MODE_CONNECTED]
-    SIGNAL_CONNECT = 2**7
-    SIGNAL_DISCONNECT = 2**8
-    SIGNAL_MESSAGE = 2**9
+    SIGNAL_CONNECT = 10
+    SIGNAL_DISCONNECT = 11
+    SIGNAL_MESSAGE = 12
     
     def can_send(self):
         return self._mode in Socket.MODES_CAN_SEND
     
     def __init__(self):
+        self.__sockets.append(self)
         self._sock = None
         self._sock2 = None
         self.message_callback = None
@@ -146,12 +153,17 @@ class Socket():
         self._mode = Socket.MODE_NONE
         self._thread = None
         self.callbacks = {}
-        self.waits = {}
+        self.waiting = {}
 
     def kill(self):
         self._alive = False
-        while self._thread and self._thread.isAlive():
-            sleep(.5)
+        self._mode = Socket.MODE_DEAD
+
+    @classmethod
+    def kill_all(cls):
+        for socket in cls.__sockets[:]:
+            socket.kill()
+            cls.__sockets.remove(socket)
 
     #on_connect callback must take no arguments
     def on_connect(self, callback):
@@ -174,7 +186,7 @@ class Socket():
     #on callback must take a single argument, which may be any valid JSON
     #attribute type (unicode, int, list, or dict)
     def on(self, type, callback):
-        if not issubclass(basestring, type):
+        if not issubclass(type.__class__, basestring):
             raise TypeError("type should be string")
         self.callbacks[type] = callback
     def remove_on(self, type):
@@ -189,13 +201,13 @@ class Socket():
 
     def wait_for(self, type):
         key = base64.b64encode(os.urandom(3))
-        if type not in self.waits:
-            self.waits[type] = {}
-        self.waits[type][key] = None
-        while self._alive and not self.waits[type][key]:
+        if type not in self.waiting:
+            self.waiting[type] = {}
+        self.waiting[type][key] = None
+        while self._alive and not self.waiting[type][key]:
             sleep(.5)
-        data = self.waits[type][key]
-        del self.waits[type][key]
+        data = self.waiting[type][key]
+        del self.waiting[type][key]
         if type == Socket.SIGNAL_CONNECT or \
            type == Socket.SIGNAL_DISCONNECT:
             return
@@ -203,32 +215,35 @@ class Socket():
             return data
 
     def _handle(self, message):
-        if Socket.SIGNAL_MESSAGE in self.waits:
-            for key in self.waits[Socket.SIGNAL_MESSAGE]:
-                self.waits[Socket.SIGNAL_MESSAGE][key] = message
+        if Socket.SIGNAL_MESSAGE in self.waiting:
+            for key in self.waiting[Socket.SIGNAL_MESSAGE]:
+                self.waiting[Socket.SIGNAL_MESSAGE][key] = message
         if self.message_callback:
             self.message_callback(message)
         try:
             obj = json.loads(message)
-            if 'type' not in obj or 'data' not in obj:
-                break
-            type = obj['type']
-            data = obj['data']
-            if type in self.waits:
-                for key in self.waits[type]:
-                    self.waits[type][key] = data
-            if type in self.callbacks:
-                self.callbacks[type](data)
-            else:
-                self.other_callback(type, data)
         except ValueError:
-            pass
+            return
+        if 'type' not in obj or 'data' not in obj:
+            return
+        type = obj['type']
+        data = obj['data']
+        if type in self.waiting:
+            for key in self.waiting[type]:
+                self.waiting[type][key] = data
+        if type in self.callbacks:
+            self.callbacks[type](data)
+        else:
+            self.other_callback(type, data)
         
     def listen(self, ip_addr, port):
         if self._mode != Socket.MODE_NONE:
-            return ValueError("Socket object already in use. Call Socket.reset() to reset Socket")
+            return ValueError("Socket object already in use.")# Call Socket.reset() to reset Socket")
         self._sock2 = socket.socket()
-        self._sock2.bind((ip_addr, port))
+        try: self._sock2.bind((ip_addr, port))
+        except socket.error as e:
+            if e.errno == 10048: raise Socket.PortInUseException()
+            else: raise e
         self._sock2.listen(1)
         def accept():
             self._sock2.settimeout(1)
@@ -242,9 +257,9 @@ class Socket():
                 self._mode = Socket.MODE_ACCEPTED
                 if self.connect_callback: self.connect_callback()
                 sig = Socket.SIGNAL_CONNECT
-                if sig in self.waits:
-                    for key in self.waits[sig]:
-                        self.waits[sig] = True
+                if sig in self.waiting:
+                    for key in self.waiting[sig]:
+                        self.waiting[sig] = True
                 message = ""
                 while self._alive:
                     try:
@@ -257,20 +272,21 @@ class Socket():
                     if r == "":
                         break
                     if r == "\n":
-                        _handle(message)
+                        self._handle(message)
                         message = ""
                 if self.disconnect_callback: self.disconnect_callback()
                 sig = Socket.SIGNAL_DISCONNECT
-                if sig in self.waits:
-                    for key in self.waits[sig]:
-                        self.waits[sig] = True
+                if sig in self.waiting:
+                    for key in self.waiting[sig]:
+                        self.waiting[sig] = True
+                self._sock.close()
+            self._sock2.close()
         self._thread = threading.Thread(target=accept)
         self._thread.start()
 
-    def connect(self, ip_addr, port, on_message = None):
+    def connect(self, ip_addr, port):
         if self._mode != Socket.MODE_NONE:
-            return ValueError("Socket object already in use. Call Socket.reset() to reset Socket")
-        if on_message != None: self.message_callback = on_message
+            return ValueError("Socket object already in use.")# Call Socket.reset() to reset Socket")
         def connect():
             self._sock = socket.socket()
             self._sock.settimeout(1)
@@ -286,9 +302,9 @@ class Socket():
                 self._mode = Socket.MODE_CONNECTED
                 if self.connect_callback: self.connect_callback()
                 sig = Socket.SIGNAL_CONNECT
-                if sig in self.waits:
-                    for key in self.waits[sig]:
-                        self.waits[sig] = True
+                if sig in self.waiting:
+                    for key in self.waiting[sig]:
+                        self.waiting[sig] = True
                 message = ""
                 while self._alive:
                     try:
@@ -301,15 +317,16 @@ class Socket():
                     if r == "":
                         break
                     if r == "\n":
-                        _handle(message)
+                        self._handle(message)
                         message = ""
                 if self.disconnect_callback: self.disconnect_callback()
                 sig = Socket.SIGNAL_DISCONNECT
-                if sig in self.waits:
-                    for key in self.waits[sig]:
-                        self.waits[sig] = True
+                if sig in self.waiting:
+                    for key in self.waiting[sig]:
+                        self.waiting[sig] = True
                 self._sock = socket.socket()
                 self._sock.settimeout(1)
+            self._sock.close()
         self._thread = threading.Thread(target=connect)
         self._thread.start()
 
