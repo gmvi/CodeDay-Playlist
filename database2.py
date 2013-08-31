@@ -1,6 +1,6 @@
 import os, sys, md5, time, json, sqlite3, shutil
 if 'modules' not in sys.path: sys.path.append('modules')
-from flask import Flask, Response, abort
+from flask import Flask, Response, request, abort, make_response
 import util, organize
 
 # Ignore database files when checking for external changes to the library's
@@ -37,8 +37,14 @@ def WHERE(**kwargs):
             else:
                 where += " %s = ? AND" % key
             values.append(value)
-    if len(values) == 0: return "", []
+    if len(values) == 0: return "", values
     else: return where[:-4], values
+
+def cull_dict(dictionary):
+    for key in dictionary:
+        if dictionary[key] == None:
+            del dictionary[key]
+    return dictionary
 
 ######## DATABASE DECLARATION ########
 
@@ -84,7 +90,84 @@ DELETE FROM folderhashes;
 DELETE FROM taglinks;
 """
 
-######## CLASSES ########
+######## DATABASE CONNECTION AND SETUP ########
+
+def connect(app = None):
+    global conn, cur
+    exists = os.path.exists('cdp.db')
+    conn = sqlite3.connect('cdp.db', check_same_thread = False)
+    cur = conn.cursor()
+    if not exists:
+        cur.executescript(SETUP)
+        rebuild()
+    if app: add_url_rules(app)
+
+def rebuild():
+    if os.path.exists('music'):
+        os.rename('music', 'temp/music')
+    tagdict = {}
+    cur.execute("SELECT id, name, album_id, artist_id FROM songs")
+    for id, name, album, artist in cur.fetchall():
+        cur.execute("SELECT tag_id FROM taglinks WHERE song_id = ?", (id,))
+        tags = [i[0] for i in cur]
+        tagdict[name, album, artist] = tags
+    cur.executescript(RESET)
+    if os.path.exists('temp/music'):
+        errors = add_path('temp/music', delete = True)
+        print 'errors: ' + str(errors)
+    for (name, album, artist), tagid in tagdict.iteritems():
+        artist_id = Artist.get_id(artist)
+        album_id = Album.get_id(album, artist_id)
+        cur.execute("SELECT id FROM songs WHERE name = ? AND album_id = ? AND artist_id = ? LIMIT 1",
+                    (name, album_id, artist_id))
+        result = cur.fetchone()
+        if result:
+            cur.execute("INSERT INTO taglinks (song_id, tag_id) VALUES (?,?)", (result[0], tagid))
+    conn.commit()
+        
+def add_path(path, delete = False, errors = []):
+    if os.path.isdir(path):
+        update_folderhash(path)
+        for node in os.listdir(path):
+            node = os.path.join(path, node)
+            errors += add_path(node, delete, errors)
+        if delete and not os.listdir(path):
+            os.rmdir(path)
+    elif os.path.splitext(path)[1] in util.FORMATS:
+##        try:
+        id = add_song(*get_song_info(path))
+##        except Exception:
+##            errors += "duplicate",
+##            return errors
+        file_path, e = organize.moveFile(path, "music", delete)
+        if e:
+            errors += (path, file_path, e)
+            return errors
+        size = os.path.getsize(file_path)
+        cur.execute("UPDATE songs SET path = ?, size = ? WHERE id = ?",
+                    (file_path, size, id))
+    return errors
+
+def add_song(name, album, track_performer, artist):
+    cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)", (artist,))
+    cur.execute("SELECT id FROM artists WHERE name = ?", (artist,))
+    artist_id = cur.fetchone()[0]
+    cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)", (album, artist_id))
+    cur.execute("SELECT id FROM albums WHERE name = ?", (album,))
+    album_id = cur.fetchone()[0]
+    cur.execute("INSERT INTO songs (name, album_id, track_performer, artist_id) VALUES (?,?,?,?)",
+                (name, album_id, track_performer, artist_id))
+    return cur.lastrowid
+    
+def get_song_info(path):
+    tags = util.get_metadata(path)
+    track_performer = tags['artist']
+    artist = tags['performer'] or track_performer
+    album = tags['album']
+    name = tags['title'] or os.path.splitext(os.path.split(path)[1])[0]
+    return (name, album, track_performer, artist)
+
+######## CLASSES, GETTERS, AND UPDATERS ########
 
 class Query():
     def __init__(self):
@@ -195,6 +278,17 @@ class Song(Item):
         return Cls(id, name, track_performer, album, artist, path, size)
 
     @staticmethod
+    def update(id, **kwargs):
+        if not kwargs: return False
+        statement = "UPDATE songs SET"
+        values = []
+        for key, value in kwargs.iteritems():
+            set += " %s = ?" % key
+            values.append(value)
+        values.append(id)
+        cur.execute(statement + " WHERE id = ?", values)
+
+    @staticmethod
     def delete(id):
         cur.execute("DELETE FROM songs WHERE id = ?", (id,))
 
@@ -207,7 +301,7 @@ class Song(Item):
     def update_tags(id, tags = []):
         cur.execute("DELETE FROM taglinks WHERE song_id = ?", (id,))
         for tag in tags:
-            cur.execute("INSERT INTO taglinks (song_id, tag_id) VALUES (?, ?)", (id, tag))
+            cur.execute("INSERT OR IGNORE INTO taglinks (song_id, tag_id) VALUES (?, ?)", (id, tag))
         conn.commit()
 
     @staticmethod
@@ -296,85 +390,6 @@ class Album(Item):
         cur.execute("SELECT id FROM albums WHERE name = ?", (name,))
         return [i[0] for i in cur.fetchall()]
 
-######## DATABASE CONNECTION AND SETUP ########
-
-def connect(app = None):
-    global conn, cur
-    exists = os.path.exists('cdp.db')
-    conn = sqlite3.connect('cdp.db', check_same_thread = False)
-    cur = conn.cursor()
-    if not exists:
-        cur.executescript(SETUP)
-        rebuild()
-    if app: add_url_rules(app)
-
-def rebuild():
-    if os.path.exists('music'):
-        os.rename('music', 'temp/music')
-    tagdict = {}
-    cur.execute("SELECT id, name, album_id, artist_id FROM songs")
-    for id, name, album, artist in cur.fetchall():
-        cur.execute("SELECT tag_id FROM taglinks WHERE song_id = ?", (id,))
-        tags = [i[0] for i in cur]
-        tagdict[name, album, artist] = tags
-    cur.executescript(RESET)
-    if os.path.exists('temp/music'):
-        errors = add_path('temp/music', delete = True)
-        print 'errors: ' + str(errors)
-    for (name, album, artist), tagid in tagdict.iteritems():
-        artist_id = Artist.get_id(artist)
-        album_id = Album.get_id(album, artist_id)
-        cur.execute("SELECT id FROM songs WHERE name = ? AND album_id = ? AND artist_id = ? LIMIT 1",
-                    (name, album_id, artist_id))
-        result = cur.fetchone()
-        if result:
-            cur.execute("INSERT INTO taglinks (song_id, tag_id) VALUES (?,?)", (result[0], tagid))
-    conn.commit()
-        
-def add_path(path, delete = False, errors = []):
-    if os.path.isdir(path):
-        update_folderhash(path)
-        for node in os.listdir(path):
-            node = os.path.join(path, node)
-            errors += add_path(node, delete, errors)
-        if delete and not os.listdir(path):
-            os.rmdir(path)
-    elif os.path.splitext(path)[1] in util.FORMATS:
-##        try:
-        id = add_song(*get_song_info(path))
-##        except Exception:
-##            errors += "duplicate",
-##            return errors
-        file_path, e = organize.moveFile(path, "music", delete)
-        if e:
-            errors += (path, file_path, e)
-            return errors
-        size = os.path.getsize(file_path)
-        cur.execute("UPDATE songs SET path = ?, size = ? WHERE id = ?",
-                    (file_path, size, id))
-    return errors
-
-def add_song(name, album, track_performer, artist):
-    cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)", (artist,))
-    cur.execute("SELECT id FROM artists WHERE name = ?", (artist,))
-    artist_id = cur.fetchone()[0]
-    cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)", (album, artist_id))
-    cur.execute("SELECT id FROM albums WHERE name = ?", (album,))
-    album_id = cur.fetchone()[0]
-    cur.execute("INSERT INTO songs (name, album_id, track_performer, artist_id) VALUES (?,?,?,?)",
-                (name, album_id, track_performer, artist_id))
-    return cur.lastrowid
-    
-def get_song_info(path):
-    tags = util.get_metadata(path)
-    track_performer = tags['artist']
-    artist = tags['performer'] or track_performer
-    album = tags['album']
-    name = tags['title'] or os.path.splitext(os.path.split(path)[1])[0]
-    return (name, album, track_performer, artist)
-
-######## GETTERS AND UPDATERS ########
-
 def jsonify(data):
     return Response(encoder.encode(data),
                     mimetype = 'application/json')
@@ -406,7 +421,8 @@ def get_artists():
 
 @JSON
 def get_artists_query():
-    return Query.artists()
+    name = request.args.get("name")
+    return Query.artists(name)
 
 @JSON
 def get_artist(id):
@@ -414,28 +430,72 @@ def get_artist(id):
 
 @JSON
 def get_albums():
-    return Query.albums()
+    name = request.args.get("name")
+    return Query.albums(name)
 
 @JSON
 def get_album(id):
     return Album.get(id)
 
+song_keys = ['name', 'artist', 'album', 'track_performer']
+
 @JSON
 def get_songs():
-    return Query.songs()
+    restrictions = {}
+    for key in song_keys:
+        if request.args.get(key) != None:
+            restrictions[key] = request.args.get(key)
+    return Query.songs(**restrictions)
 
 @JSON
 def get_song(id):
     return Song.get(id)
 
+def update_song(id):
+    changes = {}
+    for key in song_keys:
+        changes[key] = request.args.get(key)
+    Song.update(id, **cull_dictionary(changes))
+    return "200 OK"
+
 def delete_song(id):
     Song.delete(id)
+    return "200 OK"
+
 @JSON
-def get_tags(id):
+def get_song_tags(id):
     return Song.get_tags(id)
 
-def remove_tags(id):
+def update_song_tags(id):
+    tags = request.args.get('tags').split(',')
+    for i in xrange(len(tags)-1, -1, -1):
+        try:
+            tags[i] = int(tags[i])
+        except:
+            del tags[i]
+    Song.update_tags(id, tags)
+    return "200 OK"
+
+def remove_song_tags(id):
     Song.update_tags(id)
+    return "200 OK"
+
+@JSON
+def get_tags():
+    cur.execute("SELECT * FROM tags")
+    return [{'id':row[0],'name':row[1]} for row in cur]
+
+def new_tag():
+    name = request.form['name']
+    cur.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+    conn.commit()
+    return "200 OK"
+
+def del_tag(id):
+    cur.execute("DELETE FROM taglinks WHERE tag_id = ?", (id,))
+    cur.execute("DELETE FROM tags WHERE id = ?", (id,))
+    conn.commit()
+    return '200 OK'
 
 def add_url_rules(app):
     app.add_url_rule('/library', 'get_artists', get_artists)
@@ -445,14 +505,19 @@ def add_url_rules(app):
     app.add_url_rule('/library/album/<int:id>', 'get_album', get_album)
     app.add_url_rule('/library/song', 'get_songs', get_songs)
     app.add_url_rule('/library/song/<int:id>', 'get_song', get_song)
-##    app.add_url_rule('/library/song/<int:id>', update_song,
-##                     methods = ['PATCH'])
+    app.add_url_rule('/library/song/<int:id>', 'update_song', update_song,
+                     methods = ['PATCH'])
     app.add_url_rule('/library/song/<int:id>', 'delete_song', delete_song,
                      methods = ['DELETE'])
-    app.add_url_rule('/library/songs/<int:id>/tags', 'get_tags', get_tags)
-##    app.add_url_rule('/library/songs/<int:id>/tags', update_tags,
-##                     methods = ['PUT'])
-    app.add_url_rule('/library/songs/<int:id>/tags', 'remove_tags', remove_tags,
+    app.add_url_rule('/library/song/<int:id>/tags', 'get_song_tags',
+                     get_song_tags)
+    app.add_url_rule('/library/song/<int:id>/tags', 'update_song_tags',
+                     update_song_tags, methods = ['PUT'])
+    app.add_url_rule('/library/song/<int:id>/tags', 'remove_song_tags',
+                     remove_song_tags, methods = ['DELETE'])
+    app.add_url_rule('/library/tags', 'get_tags', get_tags)
+    app.add_url_rule('/library/tags', 'new_tags', new_tag, methods = ['POST'])
+    app.add_url_rule('/library/tags/<int:id>', 'del_tag', del_tag,
                      methods = ['DELETE'])
 
 if __name__ == '__main__':
