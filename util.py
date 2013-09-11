@@ -68,6 +68,10 @@ FORMATS = {".mp3"  : EasyMP3,
            ".ogg"  : OggVorbis,
            ".flac" : FLAC}
 
+def allowed_file(filename):
+    split = filename.rsplit('.', 1)
+    return len(split) > 1 and split[1] in FORMATS
+
 def open_audio_file(filepath):
     ext = os.path.splitext(filepath)[1]
     if ext not in FORMATS:
@@ -94,6 +98,11 @@ def get_metadata(filepath):
             "performer" : get_metadatum(audio, 'performer'),
             "album": get_metadatum(audio, 'album'),
             "title" : get_metadatum(audio, 'title')}
+
+def translate(datum):
+    if datum == "performer":
+        return "album artist"
+    return datum
 
 def overwrite_metadata(filepath, **kwargs):
     audio = open_audio_file(filepath)
