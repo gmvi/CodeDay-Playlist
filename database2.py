@@ -157,6 +157,25 @@ def scan(wait_seconds = 0.1):
         raw_input("[ENTER] to rebuild library (may fuck with http client, and will clear playlist)")
         rebuild()
 
+def add_song(path, delete = False):
+    if os.path.isdir(path):
+        raise ValueError("path must be file, not directory")
+    elif os.path.splitext(path)[1] not in util.FORMATS:
+        raise ValueError("filetype not supported: %s" % path)
+    id = add_song_record(*get_song_info(path))
+    file_path, e = organize.moveFile(path, 'music', delete)
+    if e:
+        Song.delete(id)
+        raise e
+    update_fsrecord(file_path)
+    pnode = os.path.split(file_path)[0]
+    if pnode != 'music':
+        update_fsrecord(pnode)
+        pnode = os.path.split(file_path)[0]
+        if pnode != 'music':
+            update_fsrecord(pnode)
+    conn.commit()
+
 # the following are helper functions and may make changes to the database
 # without commiting them.
 
@@ -168,11 +187,11 @@ def add_path(path, delete = False, errors = []):
         if delete and not os.listdir(path):
             os.rmdir(path)
     elif os.path.splitext(path)[1] in util.FORMATS:
-##        try:
-        id = add_song(*get_song_info(path))
-##        except: #duplicate files cause some sqlite exception
-##            errors += (path, "duplicate"),
-##            return errors
+        try:
+            id = add_song_record(*get_song_info(path))
+        except Duplicate as e:
+            errors += (path, e),
+            return errors
         file_path, e = organize.moveFile(path, "music", delete)
         if e:
             Song.delete(id)
@@ -182,13 +201,21 @@ def add_path(path, delete = False, errors = []):
             Song.update(id, path = file_path)
     return errors
 
-def add_song(name, album, track_performer, artist, size):
-    cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)", (artist,))
-    cur.execute("SELECT id FROM artists WHERE name = ?", (artist,))
+class Duplicate(Exception): pass
+def add_song_record(name, album, track_performer, artist, size):
+    cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)",
+                (artist,))
+    cur.execute("SELECT id FROM artists WHERE name = ?",
+                (artist,))
     artist_id = cur.fetchone()[0]
-    cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)", (album, artist_id))
-    cur.execute("SELECT id FROM albums WHERE name = ?", (album,))
+    
+    cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)",
+                (album, artist_id))
+    cur.execute("SELECT id FROM albums WHERE name = ? and artist_id = ?",
+                (album, artist_id))
     album_id = cur.fetchone()[0]
+
+    #TODO: check for duplicate
     cur.execute("INSERT INTO songs (name, album_id, track_performer, artist_id, size) VALUES (?,?,?,?,?)",
                 (name, album_id, track_performer, artist_id, size))
     return cur.lastrowid

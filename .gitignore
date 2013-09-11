@@ -1,14 +1,16 @@
 ## Mine
-weblog.txt
 settings.py
+cdp.db
+cdp.db-journal
 
 # modules
 modules/*
 !modules/README.md
 
 # db stuff
-music/*
-!music/README.md
+music
+extra
+temp
 
 ## Auto
 *.py[cod]
