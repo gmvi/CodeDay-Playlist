@@ -2,14 +2,14 @@ import json, md5, os, shutil, sqlite3, sys, threading, time
 if 'modules' not in sys.path: sys.path.append('modules')
 from flask import Flask, Response, request, abort
 import util, organize
+util.load_settings()
+from settings import DEBUG
 
 # Ignore database files when checking for external changes to the library's
 # folder structure.
 IGNORE = ["cdp.db", "cdp.db-journal"]
 
-PRETTYPRINT = True
-
-DEBUG = True
+PRETTYPRINT = DEBUG
 
 ######## JSON SETUP ########
 
@@ -167,6 +167,7 @@ def add_song(path, delete = False):
     if e:
         Song.delete(id)
         raise e
+    Song.update(id, path = file_path)
     update_fsrecord(file_path)
     pnode = os.path.split(file_path)[0]
     if pnode != 'music':

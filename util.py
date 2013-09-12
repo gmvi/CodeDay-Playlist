@@ -13,10 +13,13 @@ from random import choice
 ## Utility Methods
 
 def load_settings():
-    try: import settings
+    try:
+        import settings
+        del settings
     except:
         import settings_default
         sys.modules['settings'] = settings_default
+        del settings_default
 
 # Do I even use this anymore? maybe in Socket?
 def sleep(seconds, while_true = None, test_interval = .1):
@@ -46,14 +49,6 @@ def get_all(path):
                 ret.append(node)
     return ret
 
-def path_relative_to(root, rel_path):
-    root = split(root)
-    rel_path = split(rel_path)
-    if rel_path[:len(root)] == root:
-        return os.path.sep.join(rel_path[len(root):])
-    else:
-        raise ValueError()
-
 def split(path):
     path = path.split("\\")
     path2 = []
@@ -69,7 +64,7 @@ FORMATS = {".mp3"  : EasyMP3,
            ".flac" : FLAC}
 
 def allowed_file(filename):
-    split = filename.rsplit('.', 1)
+    split = os.path.splitext(filename)
     return len(split) > 1 and split[1] in FORMATS
 
 def open_audio_file(filepath):
@@ -193,7 +188,7 @@ class Socket():
         self.message_callback = None
 
     #on callback must take a single argument, which may be any valid JSON
-    #attribute type (unicode, int, list, or dict)
+    #attribute type (unicode, int, list, dict, or None)
     def on(self, type, callback):
         if not issubclass(type.__class__, basestring):
             raise TypeError("type should be string")
@@ -366,34 +361,3 @@ class BroadcastNamespace(BaseNamespace):
     def broadcast(self, event, message):
         for socket in self.sockets:
             socket.emit(event, message)
-
-## Other
-
-## hide_arg_tooltip is a silly little thing.
-##
-## You can use hide_arg_tooltip(func) to get an object which will act like a
-## function, but will not have an argument tooltip in IDLE. The docstring will
-## still be shown, however. This is similar to how the default help and quit
-## objects work.
-##
-## You can also use it as a decorator, like this:
-##   @hide_arg_tooltip
-##   def a():
-##      """docstring"""
-##      pass
-
-def hide_arg_tooltip(func): return _function(func)
-
-class _function:
-    def __init__(self, func):
-        self.func = func
-        self.__doc__ = func.__doc__
-    def __call__(self, *args, **kwargs):
-        return self.func(*args, **kwargs)
-    def __repr__(self):
-        hex_id = hex(id(self))
-        hex_id = hex_id[:2] + hex_id[2:].upper().rjust(8,'0')
-        return "<%s %s at %s>" % (self.__class__.__name__, \
-                                  self.func.__name__, hex_id)
-    def __str__(self):
-        return `self`

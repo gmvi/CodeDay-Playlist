@@ -1,27 +1,31 @@
-import sys, json, socket, os, traceback
+#system modules
+import base64, sys, json, socket, os
 if 'modules' not in sys.path: sys.path.append('modules')
+#installed modules
+from gevent import monkey
 from socketio import socketio_manage
 from socketio.server import SocketIOServer
 from socketio.namespace import BaseNamespace
 from flask import Flask, request, redirect, render_template, abort
 from werkzeug import secure_filename
-import base64
-import util
+from werkzeug.serving import run_with_reloader
+#local modules
+import util, database
 from util import BroadcastNamespace, Socket
 util.load_settings()
-from settings import DEBUG, SHUTDOWN_KEY
+from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA
+
+monkey.patch_all()
 
 app = Flask(__name__)
 app.debug = DEBUG
-SOCK_PORT = 2148
-
 
 ######## ROUTES ########
 
 #### utility pages
 
 #To shut down the server.
-@app.route('/shutdown', methods = ['GET', 'POST'] if DEBUG else ['POST'])
+@app.route('/api/shutdown', methods =  ['POST'])
 def shutdown():
     if request.form['key'] == SHUTDOWN_KEY or DEBUG:
         func = request.environ.get('werkzeug.server.shutdown')
@@ -31,39 +35,42 @@ def shutdown():
     else:
         abort(405)
 
-
 #### main views
 
 #main view page for the user
 @app.route('/')
 def track_page():
+    if TrackInfoNamespace.track:
+        title = TrackInfoNamespace.track['title']
+        artist = TrackInfoNamespace.track['artist']
+    else:
+        title = ""
+        artist = ""
     return render_template('track.html',
-                           title = TrackInfoNamespace.track['title'],
-                           artist = TrackInfoNamespace.track['artist'])
+                           title = title,
+                           artist = artist)
 
 #admin view
 @app.route('/admin')
 def admin_page():
+    if TrackInfoNamespace.track:
+        title = TrackInfoNamespace.track['title']
+        artist = TrackInfoNamespace.track['artist']
+    else:
+        title = ""
+        artist = ""
     return render_template('admin.html',
-                           title = TrackInfoNamespace.track['title'],
-                           artist = TrackInfoNamespace.track['artist'])
+                           title = title,
+                           artist = artist)
 
 #### uploading tracks
-
-#function to tell the main program to handle a new song uploaded to the temp folder
-def add_file(key):
-    try:
-        sock.sendln(json.dumps({"type":"upload",
-                                "data":key}))
-    except Socket.NotConnectedException:
-        print "No program to signal!\nkey = " + key
 
 #record and save a file
 def record_and_save(f):
     #TODO: record a timeout time for the key
     filename = secure_filename(f.filename)
     key = base64.urlsafe_b64encode(os.urandom(9))
-    path = os.path.join('music', 'temp', key)
+    path = os.path.join('temp', key)
     os.mkdir(path)
     filepath = os.path.join(path, filename)
     f.save(filepath)
@@ -76,18 +83,21 @@ def upload():
     if 'file' in request.files:
         f = request.files['file']
     else:
-        redirect("/")
+        return redirect("/")
     #util.allowed_file checks that the extension is in util.FORMATS
     if util.allowed_file(f.filename):
         #save the file internally in the \temp folder and record a timeout for the file
-        key, filename = record_and_save(f)
+        key, file_name = record_and_save(f)
         #if the metadata is valid, process the file
-        if metadata_is_valid(filepath):
-            add_file(key)
+        file_path = os.path.join("temp", key, file_name)
+        if metadata_is_valid(file_path):
+            database.add_song(file_path, delete = True)
+            os.rmdir(os.path.join('temp', key))
             return redirect("/")
         else: #get additional info from uploader
-            return redirect("/edit_upload?key=%s&filename=%s" % (key, filename))
+            return redirect("/edit_upload?key=%s&filename=%s" % (key, file_name))
     else:
+        print f.filename
         return redirect("/?error=extension")
 
 #package up a songs metadata for the /edit_upload form
@@ -116,7 +126,7 @@ def check_key(key, filename):
         return BAD_KEY
     elif filename != secure_filename(filename):
         return BAD_FILENAME
-    elif not os.path.exists(os.path.join("music", "temp", key, filename)):
+    elif not os.path.exists(os.path.join("temp", key, filename)):
         return NO_SUCH_FILE
     else:
         return GOOD_KEY
@@ -140,7 +150,7 @@ def edit_upload():
         print e
         return redirect("/")
 
-    path = os.path.join("music", "temp", key, filename)
+    path = os.path.join("temp", key, filename)
     if request.method == "POST":
         util.overwrite_metadata(path,
                                 artist = request.form['artist'],
@@ -239,18 +249,25 @@ def on_disconnect():
 
 ######## START SERVER ########
 
+@run_with_reloader
+def start_server():
+    database.connect(app)
+    ip_addr = socket.gethostbyname(socket.gethostname())
+    print "running on %s" % ip_addr
+    server = SocketIOServer(("", 80 if DEBUG else 5000),
+                            app,
+                            resource="socket.io")
+    server.serve_forever()
+
 def main():
     global sock
-    ip_addr = socket.gethostbyname(socket.gethostname())
     sock = Socket()
-    print "connecting to music player..."
     sock.on_connect(on_connect)
     sock.on_disconnect(on_disconnect)
-    sock.connect('localhost', SOCK_PORT, on_message)
+    sock.on_message(on_message)
+    sock.connect('localhost', SOCK_PORT)
     ControlNamespace.attatch_control(sock)
-    server = SocketIOServer(("", 80), app, resource="socket.io")
-    print "running on %s" % ip_addr
-    server.serve_forever()
+    start_server()
 
 if __name__ == "__main__":
     main()
