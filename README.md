@@ -4,13 +4,14 @@ Software to handle music at codeday
 
 ## Requirements ##
 
-organize.py and fix.py require [Mutagen](https://code.google.com/p/mutagen/)
-
-program.py requires:
+webserver.py requires:
 * [Flask](http://flask.pocoo.org/)
 * [Gevent-SocketIO](https://github.com/abourget/gevent-socketio/)
-* [SQLAlchemy] (http://www.sqlalchemy.org/)
 * [Mutagen](https://code.google.com/p/mutagen/)
+
+organize.py and fix.py only require [Mutagen](https://code.google.com/p/mutagen/)
+
+console.py requires:
 * [VLC](http://www.videolan.org/vlc/) (realy just libvlc.dll)
 * The [python bindings](http://git.videolan.org/?p=vlc/bindings/python.git;a=tree) for libvlc
 
@@ -18,21 +19,15 @@ The full list of dependencies, including subdependencies, can be found in /modul
 
 ## Usage ##
 
-This software is intended to be put on a flashdrive to house a music database for Seattle [CodeDay](http://codeday.org) hackathons. The following would get you started using it the way I do:
+This software is intended to be put on a flashdrive or portable harddrive to house a music database for [CodeDay](http://codeday.org) hackathons. The following would get you started using it the way I do:
 
 1. (optional) Dump the project on a clean flashdrive large enough to house a music library.
-2. Dump music into /music/mainpool.
-3. Use organize.py to organize /music/mainpool into /music/main.
-4. Check that nothing got screwed up from bad ID3 tags. If anything is organized wrong due to imporper tagging, you can reorganize it yourself, and run fix.py on each artist and album folder directly containing music files. It's not super user-friendly yet; read the code first.
-5. Run program.py, and point it to /music/main. It will take a while to build the database.
-6. The web interface will be at your LAN IP address on port 80.
-7. (optional) You can create other libraries as /music/*, or point program.py to your another library's root node, provided it follows a &lt;root&gt;/&lt;artist&gt;/&lt;album&gt;/&lt;track&gt; structure. Any filename formatting scheme is fine, provided metadata is accurate.
-8. (note) At this time you have to physically delete the library's cdp.db file and restart the program if you want it to recognize filesystem changes.
+2. Dump properly tagged music into /automatically_add/.
+3. Run webserver.py.
+4. The web interface will be at your LAN IP address on port 80.
 
-**Please Note: if you run program.py in IDLE, you should set DEBUG = True or ctrl-c out after loading the database (same effect), otherwise, raw_input will block flask's logging to stderr, and in turn block all incoming requests**
-
-### Supported file formats ##
+### Supported file formats ###
 * mp3
 * m4a
-* ogg (vorbis)
+* ogg vorbis
 * flac
