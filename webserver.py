@@ -10,7 +10,7 @@ from flask import Flask, request, redirect, render_template, abort
 from werkzeug import secure_filename
 from werkzeug.serving import run_with_reloader
 #local modules
-import util, database
+import util, library, playlist
 from util import BroadcastNamespace, Socket
 util.load_settings()
 from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA
@@ -91,7 +91,7 @@ def upload():
         #if the metadata is valid, process the file
         file_path = os.path.join("temp", key, file_name)
         if metadata_is_valid(file_path):
-            database.add_song(file_path, delete = True)
+            library.add_song(file_path, delete = True)
             os.rmdir(os.path.join('temp', key))
             return redirect("/")
         else: #get additional info from uploader
@@ -251,7 +251,8 @@ def on_disconnect():
 
 @run_with_reloader
 def start_server():
-    database.connect(app)
+    library.attach(app)
+    playlist.attach(app)
     ip_addr = socket.gethostbyname(socket.gethostname())
     print "running on %s" % ip_addr
     server = SocketIOServer(("", 80 if DEBUG else 5000),

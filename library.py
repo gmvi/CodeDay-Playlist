@@ -2,27 +2,16 @@ import json, md5, os, shutil, sqlite3, sys, threading, time
 if 'modules' not in sys.path: sys.path.append('modules')
 from flask import Flask, Response, request, abort
 import util, organize
-util.load_settings()
 from settings import DEBUG
 
 # Ignore database files when checking for external changes to the library's
 # folder structure.
 IGNORE = ["cdp.db", "cdp.db-journal"]
 
-PRETTYPRINT = DEBUG
-
-######## JSON SETUP ########
-
-class JSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        try:
-            return o.to_json()
-        except AttributeError:
-            json.JSONEncoder.default(self, o)
-if PRETTYPRINT:
-    encoder = JSONEncoder(sort_keys=True, indent=2, separators=(',', ': '))
+if DEBUG:
+    from collections import OrderedDict as dict_factory
 else:
-    encoder = JSONEncoder()
+    dict_facotry = dict
 
 ######## UTILITY FUNCTIONS ########
 
@@ -100,17 +89,18 @@ DROP TABLE globals;
 
 ######## DATABASE CONNECTION AND SETUP ########
 
-def connect(app_ = None):
-    global app, conn, cur
-    app = app_
+def connect():
+    global conn, cur
     exists = os.path.exists('cdp.db')
     conn = sqlite3.connect('cdp.db', check_same_thread = False)
     cur = conn.cursor()
     if not exists:
         cur.executescript(SETUP)
         rebuild()
-    if app:
-        add_url_rules(app)
+
+def attach(app):
+    for args, kwargs in routes:
+        app.add_url_rule(*args, **kwargs)
 
 def rebuild():
     if os.path.exists('music') and os.listdir('music'):
@@ -313,8 +303,8 @@ class Item():
         self.name = name
 
     def to_json(self):
-        return {"id" : self.id,
-                "name" : self.name}
+        return dict_factory([("id", self.id),
+                             ("name", self.name)])
 
 class ShortArtist(Item):
     @classmethod
@@ -357,11 +347,11 @@ class Song(Item):
                and os.path.getsize(self.rel_path) == self.size
 
     def to_json(self):
-        return {"id" : self.id,
-                "name" : self.name,
-                "album" : self.album,
-                "artist" : self.artist,
-                "track_performer" : self.track_performer}
+        return dict_factory([("id", self.id),
+                             ("name", self.name),
+                             ("album", self.album),
+                             ("artist", self.artist),
+                             ("track_performer", self.track_performer)])
 
     @classmethod
     def get(Cls, id):
@@ -431,9 +421,9 @@ class Artist(Item):
         self.songs = [ShortSong(*tup) for tup in songs]
 
     def to_json(self):
-        return {"id" : self.id,
-                "name" : self.name,
-                "albums" : self.albums}
+        return dict_factory([("id", self.id),
+                             ("name", self.name),
+                             ("albums", self.albums)])
 
     @classmethod
     def get(Cls, id):
@@ -462,10 +452,10 @@ class Album(Item):
         self.songs = [ShortSong(*tup) for tup in songs]
 
     def to_json(self):
-        return {"id" : self.id,
-                "name" : self.name,
-                "artist" : self.artist,
-                "songs" : self.songs}
+        return dict_factory([("id", self.id),
+                             ("name", self.name),
+                             ("artist", self.artist),
+                             ("songs", self.songs)])
 
     @classmethod
     def get(Cls, id):
@@ -490,26 +480,35 @@ class Album(Item):
         cur.execute("SELECT id FROM albums WHERE name = ?", (name,))
         return [i[0] for i in cur.fetchall()]
 
-def get_folderhash(path):
-    mr_itchy = md5.md5()
-    contents = os.listdir(path)
-    for node in contents:
-        if node not in IGNORE:
-            mr_itchy.update(node)
-    return mr_itchy.hexdigest()
+def get_tags():
+    cur.execute("SELECT * FROM tags")
+    return [{'id':row[0],'name':row[1]} for row in cur]
+
+def create_tag(name):
+    cur.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+    conn.commit()
+
+def delete_tag(id):
+    cur.execute("DELETE FROM taglinks WHERE tag_id = ?", (id,))
+    cur.execute("DELETE FROM tags WHERE id = ?", (id,))
+    conn.commit()
+
+######## FLASK ROUTING ########
 
 def jsonify(data):
     if data == None:
         abort(404)
     else:
-        return Response(encoder.encode(data),
+        return Response(util.encode(data),
                         mimetype = 'application/json')
-
-routes = []
 
 def route(location, *methods, **kwargs):
     def decorator(func):
         global routes
+        try:
+            routes
+        except NameError:
+            routes = []
         if 'methods' not in kwargs and methods:
             kwargs['methods'] = methods
         routes.append(((location, func.__name__, func), kwargs))
@@ -591,22 +590,18 @@ def remove_song_tags(id):
     return "200 OK"
 
 @route('/library/tags')
-def get_tags():
-    cur.execute("SELECT * FROM tags")
-    return jsonify([{'id':row[0],'name':row[1]} for row in cur])
+def get_tags_endpoint():
+    return jsonify(get_tags())
 
 @route('/library/tags', 'POST')
-def new_tag():
+def create_tag_endpoint():
     name = request.form['name']
-    cur.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
-    conn.commit()
+    create_tag(name)
     return '200 OK'
 
 @route('/library/tags/<int:id>', 'DELETE')
-def del_tag(id):
-    cur.execute("DELETE FROM taglinks WHERE tag_id = ?", (id,))
-    cur.execute("DELETE FROM tags WHERE id = ?", (id,))
-    conn.commit()
+def delete_tag_endpoint(id):
+    delete_tag(id)
     return '200 OK'
 
 @route('/api/rebuild_database', 'POST')
@@ -614,18 +609,12 @@ def rebuild_endpoint():
     rebuild()
     return '200 OK'
 
-def add_url_rules(app):
-    for args, kwargs in routes:
-        app.add_url_rule(*args, **kwargs)
-
 def run():
     app = Flask(__name__)
     app.debug = DEBUG
-    connect(app)
+    attach(app)
     app.run()
 
-if __name__ == '__main__':
-    if 'idlelib' not in sys.modules:
-        run()
-    else:
-        connect()
+connect()
+if __name__ == '__main__' and 'idlelib' not in sys.modules:
+    run()

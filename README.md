@@ -22,9 +22,11 @@ The full list of dependencies, including subdependencies, can be found in /modul
 This software is intended to be put on a flashdrive or portable harddrive to house a music database for [CodeDay](http://codeday.org) hackathons. The following would get you started using it the way I do:
 
 1. (optional) Dump the project on a clean flashdrive large enough to house a music library.
+2. Rename settings_default.py as settings.py, and edit it to your liking.
 2. Dump properly tagged music into /automatically_add/.
 3. Run webserver.py.
-4. The web interface will be at your LAN IP address on port 80.
+4. The web interface will be at your LAN IP address on port 80 (configurable in settings.py).
+5. Alternatively you can use console.py if you don't have a webbrowser, or if your computer/javascript engine are too slow to play certain filetypes 
 
 ### Supported file formats ###
 * mp3

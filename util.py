@@ -9,52 +9,51 @@ from mutagen.id3 import ID3NoHeaderError
 from mutagen.flac import FLAC
 from socketio.namespace import BaseNamespace
 from random import choice
+## NOTE: util must be imported before settings, so that settings.py and
+##       settings_defauilt.py can be handled properly
+try:
+    import settings
+    del settings
+except:
+    import settings_default
+    sys.modules['settings'] = settings_default
+    del settings_default
 
-## Utility Methods
+from settings import DEBUG
 
-def load_settings():
-    try:
-        import settings
-        del settings
-    except:
-        import settings_default
-        sys.modules['settings'] = settings_default
-        del settings_default
+######## JSON SETUP ########
 
-# Do I even use this anymore? maybe in Socket?
+PRETTYPRINT = DEBUG
+
+class JSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        try:
+            return o.to_json()
+        except AttributeError:
+            json.JSONEncoder.default(self, o)
+if PRETTYPRINT:
+    encoder = JSONEncoder(indent=2, separators=(',', ': '))
+else:
+    encoder = JSONEncoder()
+
+encode = encoder.encode
+
+#### UTILITY METHODS ####
+
 def sleep(seconds, while_true = None, test_interval = .1):
+    start = time.time()
     if while_true == None:
         time.sleep(seconds)
         return
-    start = time.time()
     end = start+seconds
-    remaining = lambda: end - time.time()
-    while while_true() and remaining() >= 0:
-        time.sleep(min(test_interval, remaining()))
+    while while_true() and end - time.time() > 0:
+        time.sleep(min(test_interval, end - time.time()))
 
 # files
 
 class UnsupportedFileTypeError(Exception): pass
 
-is_supported = lambda path: os.path.splitext(path)[1] in FORMATS    
-
-def get_all(path):
-    ret = []
-    for node in os.listdir(path):
-        node = os.path.join(path, node)
-        if os.path.isdir(node):
-            ret += get_all(node)
-        else:
-            if os.path.splitext(node)[1] in FORMATS:
-                ret.append(node)
-    return ret
-
-def split(path):
-    path = path.split("\\")
-    path2 = []
-    for seg in path:
-        path2 += seg.split("/")
-    return path2
+is_supported = lambda path: os.path.splitext(path)[1] in FORMATS
 
 # audio files
 
@@ -122,7 +121,7 @@ class bufferlist(list):
         if len(self) > self.buffer_size:
             self.pop(0)
 
-#TODO: support wait_for(Socket.SIGNAL_CONNECT) and SIGNAL_DISCONNECT
+#TODO: support wait_for(Socket.SIGNAL_CONNECT) and wait_for(SIGNAL_DISCONNECT)
 class Socket():
     class SocketException(Exception): pass
     class NotConnectedException(SocketException): pass
@@ -209,7 +208,7 @@ class Socket():
             self.waiting[type] = {}
         self.waiting[type][key] = None
         while self._alive and not self.waiting[type][key]:
-            sleep(.5)
+            time.sleep(.5)
         data = self.waiting[type][key]
         del self.waiting[type][key]
         if type == Socket.SIGNAL_CONNECT or \
