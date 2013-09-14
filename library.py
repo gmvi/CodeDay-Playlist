@@ -11,7 +11,7 @@ IGNORE = ["cdp.db", "cdp.db-journal"]
 if DEBUG:
     from collections import OrderedDict as dict_factory
 else:
-    dict_facotry = dict
+    dict_factory = dict
 
 ######## UTILITY FUNCTIONS ########
 
@@ -353,6 +353,12 @@ class Song(Item):
                              ("artist", self.artist),
                              ("track_performer", self.track_performer)])
 
+    @staticmethod
+    def exists(id):
+        cur.execute("SELECT EXISTS (SELECT id FROM songs WHERE id = ?)", (id,))
+        row = cur.fetchone()
+        return bool(row[0])
+
     @classmethod
     def get(Cls, id):
         cur.execute("SELECT * FROM songs WHERE id = ?", (id,))
@@ -495,9 +501,9 @@ def delete_tag(id):
 
 ######## FLASK ROUTING ########
 
-def jsonify(data):
-    if data == None:
-        abort(404)
+def jsonify(data, null = 404):
+    if null and data == None:
+        abort(null)
     else:
         return Response(util.encode(data),
                         mimetype = 'application/json')
