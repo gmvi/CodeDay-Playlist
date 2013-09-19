@@ -39,9 +39,10 @@ def cull_dict(dictionary):
 
 SETUP = """
 CREATE TABLE songs (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
-                    track_performer TEXT,
-                    album_id INTEGER, artist_id INTEGER,
-                    path TEXT,
+                    track_performer TEXT, album_id INTEGER,
+                    artist_id INTEGER, length REAL NOT NULL,
+                    bitrate INTEGER, mime TEXT NOT NULL,
+                    size INTEGER, path TEXT,
                     UNIQUE (name, album_id, artist_id),
                     FOREIGN KEY (artist_id) REFERENCES artists (id),
                     FOREIGN KEY (album_id) REFERENCES albums (id));
@@ -152,7 +153,7 @@ def add_song(path, delete = False):
         raise ValueError("path must be file, not directory")
     elif os.path.splitext(path)[1] not in util.FORMATS:
         raise ValueError("filetype not supported: %s" % path)
-    id = add_song_record(*get_song_info(path))
+    id = add_song_record(**util.get_song_info(path))
     file_path, e = organize.moveFile(path, 'music', delete)
     if e:
         Song.delete(id)
@@ -179,7 +180,7 @@ def add_path(path, delete = False, errors = []):
             os.rmdir(path)
     elif os.path.splitext(path)[1] in util.FORMATS:
         try:
-            id = add_song_record(*get_song_info(path))
+            id = add_song_record(**util.get_song_info(path))
         except Duplicate as e:
             errors += (path, e),
             return errors
@@ -193,31 +194,29 @@ def add_path(path, delete = False, errors = []):
     return errors
 
 class Duplicate(Exception): pass
-def add_song_record(name, album, track_performer, artist, size):
-    cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)",
-                (artist,))
-    cur.execute("SELECT id FROM artists WHERE name = ?",
-                (artist,))
-    artist_id = cur.fetchone()[0]
-    
-    cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)",
-                (album, artist_id))
-    cur.execute("SELECT id FROM albums WHERE name = ? and artist_id = ?",
-                (album, artist_id))
-    album_id = cur.fetchone()[0]
+def add_song_record(title, album, track_performer, artist, length, bitrate, mime, size):
+    if artist == None:
+        artist_id = None
+    else:
+        cur.execute("INSERT OR IGNORE INTO artists (name) VALUES (?)",
+                    (artist,))
+        cur.execute("SELECT id FROM artists WHERE name = ?",
+                    (artist,))
+        artist_id = cur.fetchone()[0]
+
+    if album == None:
+        album_id = None
+    else:
+        cur.execute("INSERT OR IGNORE INTO albums (name, artist_id) VALUES (?, ?)",
+                    (album, artist_id))
+        cur.execute("SELECT id FROM albums WHERE name = ? and artist_id = ?",
+                    (album, artist_id))
+        album_id = cur.fetchone()[0]
 
     #TODO: check for duplicate
-    cur.execute("INSERT INTO songs (name, album_id, track_performer, artist_id, size) VALUES (?,?,?,?,?)",
-                (name, album_id, track_performer, artist_id, size))
+    cur.execute("INSERT INTO songs (name, album_id, track_performer, artist_id, length, bitrate, mime, size) VALUES (?,?,?,?,?,?,?,?)",
+                (title, album_id, track_performer, artist_id, length, bitrate, mime, size))
     return cur.lastrowid
-    
-def get_song_info(path):
-    tags = util.get_metadata(path)
-    track_performer = tags['artist']
-    artist = tags['performer'] or track_performer
-    album = tags['album']
-    name = tags['title'] or os.path.splitext(os.path.split(path)[1])[0]
-    return (name, album, track_performer, artist, os.path.getsize(path))
 
 def update_fsrecords(path):
     update_fsrecord(path)
@@ -331,13 +330,17 @@ class ShortSong(Item):
             return Cls(id, name[0])
 
 class Song(Item):
-    def __init__(self, id, name, track_performer, album, artist, path, size):
+    def __init__(self, id, name, track_performer, album, artist, length, bitrate,
+                 mime, size, path):
         Item.__init__(self, id, name)
+        self.track_performer = track_performer
         self.album = album
         self.artist = artist
-        self.track_performer = track_performer
+        self.length = length
+        self.bitrate = bitrate
+        self.mime = mime
+        self.size = size
         self.path = path
-        self.change_alerted = False
 
     def __repr__(self):
         return "Song(id = %s)" % self.id
@@ -364,10 +367,11 @@ class Song(Item):
         cur.execute("SELECT * FROM songs WHERE id = ?", (id,))
         row = cur.fetchone()
         if not row: return
-        id, name, track_performer, album, artist, path, size = row
+        id, name, track_performer, album, artist, length, bitrate, mime, size \
+          , path = row
         if album: album = ShortAlbum.get(album)
         if artist: artist = ShortArtist.get(artist)
-        return Cls(id, name, track_performer, album, artist, path, size)
+        return Cls(id, name, track_performer, album, artist, length, bitrate, mime, size, path)
 
     @staticmethod
     def update(id, **kwargs):

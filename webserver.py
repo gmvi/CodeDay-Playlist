@@ -12,10 +12,10 @@ from werkzeug.serving import run_with_reloader
 #local modules
 import util, library, playlist
 from util import BroadcastNamespace, Socket
-util.load_settings()
 from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA
 
-monkey.patch_all()
+if 'idlelib' not in sys.modules:
+    monkey.patch_all()
 
 app = Flask(__name__)
 app.debug = DEBUG
@@ -90,7 +90,7 @@ def upload():
         key, file_name = record_and_save(f)
         #if the metadata is valid, process the file
         file_path = os.path.join("temp", key, file_name)
-        if metadata_is_valid(file_path):
+        if metadata_are_valid(file_path):
             library.add_song(file_path, delete = True)
             os.rmdir(os.path.join('temp', key))
             return redirect("/")
@@ -100,21 +100,26 @@ def upload():
         print f.filename
         return redirect("/?error=extension")
 
-#package up a songs metadata for the /edit_upload form
+#package up a song's metadata for the /edit_upload form
 def package_metadata(path):
-    metadata = util.get_metadata(path)
+    metadata = util.get_song_info(path)
     packaged = []
-    for datum in metadata:
-        packaged.append({"friendly_name" : util.translate(datum),
+    for datum, friendly in (('title', 'title'),
+                            ('album', 'album'),
+                            ('artist', 'album artist'),
+                            ('track_performer', 'track artist')):
+        packaged.append({"friendly_name" : friendly,
                           "name"          : datum,
                           "value"         : metadata[datum],
                           "required"      : datum in REQUIRED_METADATA})
     return packaged
 
-#check if metadata is valid (really just checks if the REQUIRED_METADATA is present
-def metadata_is_valid(path):
-    metadata = util.get_metadata(path)
-    return all((metadatum in metadata for metadatum in REQUIRED_METADATA))
+#check if metadata is valid (really just checks if the REQUIRED_METADATA are present
+def metadata_are_valid(path):
+    info = util.get_song_info(path)
+    return all((metadatum in info and info[metadatum] \
+                for metadatum in REQUIRED_METADATA
+               ))
 
 #check that an upload key-set (key and filename) is good
 GOOD_KEY = 0
@@ -132,38 +137,32 @@ def check_key(key, filename):
         return GOOD_KEY
 
 #edit metadata of an uploaded song
-@app.route('/edit_upload', methods=['GET', 'POST'])
+@app.route('/edit_upload')
 def edit_upload():
-    if request.method == "POST":
-        key = request.form["key"]
-        filename = request.form["filename"]
-        #if either of the above don't exist, a 400 BAD REQUEST will automatically be returned
-    else:
-        key = request.args.get("key")
-        filename = request.args.get("filename")
-        if not key or not filename:
-            #redirect to / instead of returning a 400 BAD REQUEST if GET
-            return redirect("/")
-    try:
-        check_key(key, filename)
-    except BadKeyError as e:
-        print e
+    key = request.args.get("key")
+    filename = request.args.get("filename")
+    if not key or not filename or check_key(key, filename) != 0:
         return redirect("/")
-
     path = os.path.join("temp", key, filename)
-    if request.method == "POST":
-        util.overwrite_metadata(path,
-                                artist = request.form['artist'],
-                                performer = request.form['performer'],
-                                album = request.form['album'],
-                                title = request.form['title'])
-        send_upload(key)
-        return redirect("/")
-    else:
-        metadata = package_metadata(path)
-        return render_template('metadata.html', metadata = metadata,
-                                                key = key,
-                                                filename = filename)
+    metadata = package_metadata(path)
+    return render_template('metadata.html', metadata = metadata,
+                                            key = key,
+                                            filename = filename)
+
+@app.route('/edit_upload', methods=['POST'])
+def edit_upload():
+    key = request.form["key"]
+    filename = request.form["filename"]
+    if check_key(key, filename) != 0:
+        abort(400)
+    path = os.path.join("temp", key, filename)
+    util.overwrite_metadata(path,
+                            artist = request.form['artist'],
+                            performer = request.form['performer'],
+                            album = request.form['album'],
+                            title = request.form['title'])
+    send_upload(key)
+    return redirect("/")
 
 #socketio endpoint
 @app.route('/socket.io/<path:rest>')
@@ -249,16 +248,17 @@ def on_disconnect():
 
 ######## START SERVER ########
 
-@run_with_reloader
 def start_server():
     library.attach(app)
     playlist.attach(app)
     ip_addr = socket.gethostbyname(socket.gethostname())
     print "running on %s" % ip_addr
-    server = SocketIOServer(("", 80 if DEBUG else 5000),
+    server = SocketIOServer(("", 5000 if DEBUG else 80),
                             app,
                             resource="socket.io")
     server.serve_forever()
+if 'idlelib' not in sys.modules:
+    start_server = run_with_reloader(start_server)
 
 def main():
     global sock

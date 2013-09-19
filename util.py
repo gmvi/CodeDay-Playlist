@@ -59,6 +59,7 @@ is_supported = lambda path: os.path.splitext(path)[1] in FORMATS
 
 FORMATS = {".mp3"  : EasyMP3,
            ".m4a"  : EasyMP4,
+           ".mp4"  : EasyMP4,
            ".ogg"  : OggVorbis,
            ".flac" : FLAC}
 
@@ -79,24 +80,28 @@ def open_audio_file(filepath):
         audio = EasyMP3(filepath)
     return audio
 
-def get_metadatum(audio, metadatum):
+def get_metadatum(audio, metadatum, default = None):
     if audio.has_key(metadatum):
         if type(audio[metadatum]) == bool: return audio[metadatum]
         else: return audio[metadatum][0]
-    else: return ""
+    else: return default
 
-def get_metadata(filepath):
+def get_song_info(filepath):
     audio = open_audio_file(filepath)
     artist = get_metadatum(audio, 'artist')
-    return {"artist" : artist,
-            "performer" : get_metadatum(audio, 'performer'),
-            "album": get_metadatum(audio, 'album'),
-            "title" : get_metadatum(audio, 'title')}
-
-def translate(datum):
-    if datum == "performer":
-        return "album artist"
-    return datum
+    performer = get_metadatum(audio, 'performer')
+    album_artist = performer or artist
+    track_artist = artist if artist != album_artist else None
+    title = get_metadatum(audio, 'title', os.path.splitext(os.path.split(filepath)[1])[0])
+    bitrate = audio.info.bitrate if hasattr(audio.info, 'bitrate') else None
+    return {"artist" : album_artist,
+            "track_performer" : track_artist,
+            "album" : get_metadatum(audio, 'album'),
+            "title" : title,
+            "length" : audio.info.length,
+            "bitrate" : bitrate,
+            "mime" : audio.mime[0],
+            "size" : os.path.getsize(filepath)}
 
 def overwrite_metadata(filepath, **kwargs):
     audio = open_audio_file(filepath)
