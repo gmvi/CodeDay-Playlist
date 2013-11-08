@@ -1,37 +1,43 @@
 <html>
   <head>
     <title>CodeDay Playlist Admin Panel</title>
-    <style type='text/css'>
-    body
-    { text-align:center;
-    }
-    #controls > button
-    { 
-    }
-    </style>
     <script type="text/javascript" src="/static/socket.io.min.js"></script>
-    <script type="text/javascript" src="/static/jquery.min.js"></script>
-    <script type="text/javascript" src="/static/trackUpdate.js?nocache"></script>
-    <script type="text/javascript">
-    controlSocket = io.connect('/control');
-    controlSocket.on('error', function(message)
-    { console.log("Error: " + message);
-    });
-    function sendCommand(command)
-    { controlSocket.emit('command', command);
-    }
-    </script>
+    <script type="text/javascript" src="/static/jquery-1.8.3.min.js"></script>
+    <script type="text/javascript" src="/static/jquery-ui-1.10.3.custom.min.js"></script>
+    <script type="text/javascript" src="/static/aurora.js"></script>
+    <script type="text/javascript" src="/static/codecs/MP3.js"></script>
+    <script type="text/javascript" src="/static/codecs/FLAC.js"></script>
+    <script type="text/javascript" src="/static/codecs/AAC.js"></script>
+    <script type="text/javascript" src="/static/codecs/OGG.js"></script>
+    <script type="text/javascript" src="/static/codecs/Vorbis.js"></script>
+    <script type="text/javascript" src="/static/trackUpdate.js"></script>
+    <script type="text/javascript" src="/static/admin.js?4"></script>
+    <link type="text/css" rel="stylesheet" href="/static/admin.css?4">
   </head>
   <body>
-    <div id=info>
-      <span id=track-title>{{title}}</span><br>
-      <span id=track-artist>{{artist}}</span>
+    <div id="info">
+      <span id="track-title">{{title}}</span><br>
+      <span id="track-artist">{{artist}}</span>
     </div>
-    <div id=controls>
-      <button onclick="sendCommand('previous');">&lt;&lt;</button>
-      <button onclick="sendCommand('pause');">&gt;</button>
-      <button onclick="sendCommand('next');">&gt;&gt;</button>
-      <button onclick="sendCommand('last');">&gt;|</button>
+    <div id="controls">
+      <div>
+        <span id="position" class="timelabel sliderlabel right">0:00</span>
+        <input id="seek" class="labeled" type="range" min=0 max=1 value=0>
+        <span id="duration" class="timelabel sliderlabel left">...</span>
+      </div>
+      <div>
+        <button id="prev">&lt;&lt;</button>
+        <button id="play">&gt;</button>
+        <button id="pause" style="display: none;">||</button>
+        <button id="stop">X</button>
+        <button id="next">&gt;&gt;</button>
+      </div>
+    </div>
+    <div id="playlist-container">
+      <span id="playlist-title">Playlist</span>
+      <ol id="playlist">
+        <div class="sort-boundary"></div>
+      </ol>
     </div>
   </body>
 </html>

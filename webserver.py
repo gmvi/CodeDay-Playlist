@@ -1,29 +1,45 @@
-import sys, json, socket, os, traceback
+#system modules
+import base64, json, traceback, sys, socket, os
+from sqlite3 import OperationalError
 if 'modules' not in sys.path: sys.path.append('modules')
+#installed modules
+from gevent import monkey
 from socketio import socketio_manage
 from socketio.server import SocketIOServer
-from socketio.namespace import BaseNamespace
-from flask import Flask, request, redirect, render_template, abort
+from flask import Flask, request, session, redirect, render_template, abort
 from werkzeug import secure_filename
-import base64
-import util
-from util import BroadcastNamespace, Socket
-util.load_settings()
-from settings import DEBUG, SHUTDOWN_KEY
+from gevent.wsgi import WSGIServer
+#local modules
+from util import allowed_file, get_song_info, overwrite_metadata, \
+                 send_file_partial, WriteWrapper
+try:
+    import library, playlist#, users, autodj
+except OperationalError:
+    print "Database is locked"
+    raw_input("[enter to exit]")
+    exit()
+##from util import BroadcastNamespace, Socket
+from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA#, COOKIE_SESSION_KEY
+
+##if 'idlelib' not in sys.modules:
+##    monkey.patch_all()
 
 app = Flask(__name__)
-app.debug = True
-sock = Socket()
-SOCK_PORT = 2148
+app.debug = DEBUG
+#app.secret_key = COOKIE_SESSION_KEY
+library.attach(app)
+playlist.attach(app)
+#users.attach(app)
+#autodj.attach(app)
 
-def allowed_file(filename):
-    split = filename.rsplit('.', 1)
-    return len(split) > 1 and split[1] in ['mp3', 'ogg', 'flac', 'm4a']
+######## ROUTES ########
 
-# To shut down the server.
-@app.route('/shutdown', methods=['GET', 'POST'])
+#### api endpoints ####
+
+#To shut down the server.
+@app.route('/api/shutdown', methods =  ['POST'])
 def shutdown():
-    if str(request.form['key'] == SHUTDOWN_KEY):
+    if request.form['key'] == SHUTDOWN_KEY or DEBUG:
         func = request.environ.get('werkzeug.server.shutdown')
         if func is None:
             raise RuntimeError('Not running with the Werkzeug Server')
@@ -31,199 +47,188 @@ def shutdown():
     else:
         abort(405)
 
-def my_debug(func):
-    def debug_func():
-        try:
-            return func()
-        except Exception:
-            return traceback.format_exc(50)
-    return debug_func
+#### static ####
+@app.route('/scripts/<filename>')
+def scripts(filename):
+    for contraband in ['..', '/', '\\']:
+        if contraband in filename:
+            abort(404)
+    return send_from_directory('scripts', filename)
 
+#### main views
+
+#main view page for the user
 @app.route('/')
 def track_page():
+    song = playlist.get_current_song()
+    if not song:
+        return render_template('track.html',
+                               no_current = True)
     return render_template('track.html',
-                           title = TrackInfoNamespace.track['title'],
-                           artist = TrackInfoNamespace.track['artist'])
+                           title = song.name,
+                           artist = song.track_performer)
 
-def send_upload(key):
-    try:
-        sock.sendln(json.dumps({"type":"upload",
-                              "data":key}))
-    except Socket.NotConnectedException:
-        print "No program to signal!\nkey = " + key
-
-@app.route('/upload', methods=['POST'])
-def upload():
-    if 'file' in request.files:
-        file = request.files['file']
-    else:
-        redirect("/")
-    if allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        key = base64.urlsafe_b64encode(os.urandom(9))
-        path = os.path.join('music', 'temp', key)
-        os.mkdir(path)
-        path = os.path.join(path, filename)
-        file.save(path)
-        if valid_metadata(path):
-            send_upload(key)
-            return redirect("/")
-        else:
-            return redirect("/metadata?key=%s&filename=%s" % (key, filename))
-    else:
-        return redirect("/?error=extension")
-
-def translate(datum):
-    if datum == "performer":
-        datum = "album artist"
-    return datum
-required = ['title', 'artist']
-def get_metadata(path):
-    metadata = util.get_metadata(path)
-    metadata2 = []
-    for datum in metadata:
-        metadata2.append({"friendly_name" : translate(datum),
-                          "name"          : datum,
-                          "value"         : metadata[datum],
-                          "required"      : datum in required})
-    return metadata2
-
-def valid_metadata(path):
-    metadata = util.get_metadata(path)
-    return bool(metadata['title'] and metadata['artist'])
-
-class BadKeyError(Exception): pass
-def check_key(key, filename):
-    if key != secure_filename(key):
-        raise BadKeyError("key")
-    if filename != secure_filename(filename):
-        raise BadKeyError("filename")
-    if not os.path.exists(os.path.join("music", "temp", key, filename)):
-        raise BadKeyError("path")
-
-@app.route('/metadata', methods=['GET', 'POST'])
-def metadata():
-    if request.method == "POST":
-        key = request.form["key"]
-        filename = request.form["filename"]
-    else:
-        key = request.args.get("key")
-        filename = request.args.get("filename")
-        if not key or not filename:
-            return redirect("/")
-    try:
-        check_key(key, filename)
-    except BadKeyError as e:
-        print e
-        return redirect("/")
-
-    path = os.path.join("music", "temp", key, filename)
-    if request.method == "POST":
-        util.overwrite_metadata(path,
-                                artist = request.form['artist'],
-                                performer = request.form['performer'],
-                                album = request.form['album'],
-                                title = request.form['title'])
-        send_upload(key)
-        return redirect("/")
-    else:
-        metadata = get_metadata(path)
-        return render_template('metadata.html', metadata = metadata,
-                                                key = key,
-                                                filename = filename)
-
+#admin view
 @app.route('/admin')
 def admin_page():
+    song = playlist.get_current_song()
+    if not song:
+        return render_template('admin.html',
+                               no_current = True)
     return render_template('admin.html',
-                           title = TrackInfoNamespace.track['title'],
-                           artist = TrackInfoNamespace.track['artist'])
+                           title = song.name,
+                           artist = song.track_performer)
 
-# Socket endpoint
-@app.route('/socket.io/<path:rest>')
-def push_stream(rest):
-    try:
-        socketio_manage(request.environ, {'/track' : TrackInfoNamespace,
-                                          '/control' : ControlNamespace}, request)
-    except:
-        app.logger.error("Exception while handling socketio connection",
-                         exc_info=True)
-    return ""
+#player
+@app.route('/player')
+def player_page():
+    return render_template('player.html')
+#### uploading tracks
 
-class ControlNamespace(BaseNamespace):
-    control_socket = None
+#record and save a file
+def record_and_save(f):
+    #TODO: record a timeout time for the key
+    filename = secure_filename(f.filename)
+    key = base64.urlsafe_b64encode(os.urandom(9))
+    path = os.path.join('temp', key)
+    os.mkdir(path)
+    filepath = os.path.join(path, filename)
+    f.save(filepath)
+    return key, filename
 
-    def __init__(self, *args, **kwargs):
-        if self.control_socket == None:
-            raise ValueError("must attatch a control socket first")
-        BaseNamespace.__init__(self, *args, **kwargs)
+#/upload route
+@app.route('/upload', methods=['POST'])
+def upload():
+    #get the uploaded file or redirect to http://host/
+    if 'file' in request.files:
+        f = request.files['file']
+    else:
+        return redirect("/")
+    #allowed_file checks that the extension is in util.FORMATS
+    if allowed_file(f.filename):
+        #save the file internally in the \temp folder and record a timeout for the file
+        key, file_name = record_and_save(f)
+        #if the metadata is valid, process the file
+        file_path = os.path.join("temp", key, file_name)
+        if metadata_are_valid(file_path):
+            library.add_song(file_path, delete = True)
+            os.rmdir(os.path.join('temp', key))
+            return redirect("/")
+        else: #get additional info from uploader
+            return redirect("/edit_upload?key=%s&filename=%s" % (key, file_name))
+    else:
+        print f.filename
+        return redirect("/?error=extension")
 
-    @classmethod
-    def attatch_control(cls, control_sock):
-        cls.control_socket = control_sock
-            
-    def on_command(self, message):
-        if DEBUG: print "sending command '%s' to program" % message
-        j = json.dumps({"type" : "command",
-                        "data" :  message})
-        try:
-            self.control_socket.sendln(j)
-        except ValueError:
-            self.emit('error', "no program to control")
+#package up a song's metadata for the /edit_upload form
+def package_metadata(path):
+    metadata = get_song_info(path)
+    packaged = []
+    for datum, friendly in (('title', 'title'),
+                            ('album', 'album'),
+                            ('artist', 'album artist'),
+                            ('track_performer', 'track artist')):
+        packaged.append({"friendly_name" : friendly,
+                          "name"          : datum,
+                          "value"         : metadata[datum],
+                          "required"      : datum in REQUIRED_METADATA})
+    return packaged
 
-class TrackInfoNamespace(BroadcastNamespace):
-    track = None
-    
-    @classmethod
-    def update_track(cls, track):
-        if track != cls.track:
-            cls.track = track
-            cls.broadcast('track', json.dumps(track))
+#check if metadata is valid (really just checks if the REQUIRED_METADATA are present
+def metadata_are_valid(path):
+    info = get_song_info(path)
+    return all((metadatum in info and info[metadatum] \
+                for metadatum in REQUIRED_METADATA
+               ))
 
-    @classmethod
-    def clear_track(cls):
-        cls.update_track(None)
-        
-    def on_request(self, message):
-        if message == 'track':
-            self.emit('track', json.dumps(self.track))
-        else:
-            self.emit('error', 'Unknown request: %s' % message)
+#check that an upload key-set (key and filename) is good
+GOOD_KEY = 0
+BAD_KEY = 1
+BAD_FILENAME = 2
+NO_SUCH_FILE = 3
+def check_key(key, filename):
+    if key != secure_filename(key):
+        return BAD_KEY
+    elif filename != secure_filename(filename):
+        return BAD_FILENAME
+    elif not os.path.exists(os.path.join("temp", key, filename)):
+        return NO_SUCH_FILE
+    else:
+        return GOOD_KEY
+
+#edit metadata of an uploaded song
+@app.route('/edit_upload')
+def edit_upload():
+    key = request.args.get("key")
+    filename = request.args.get("filename")
+    if not key or not filename or check_key(key, filename) != 0:
+        return redirect("/")
+    path = os.path.join("temp", key, filename)
+    metadata = package_metadata(path)
+    return render_template('metadata.html', metadata = metadata,
+                                            key = key,
+                                            filename = filename)
+
+@app.route('/edit_upload', methods=['POST'])
+def edit_upload():
+    key = request.form["key"]
+    filename = request.form["filename"]
+    if check_key(key, filename) != 0:
+        abort(400)
+    path = os.path.join("temp", key, filename)
+    overwrite_metadata(path,
+                       artist = request.form['artist'],
+                       performer = request.form['performer'],
+                       album = request.form['album'],
+                       title = request.form['title'])
+    send_upload(key)
+    return redirect("/")
 
 
-# Communitcation with program.py over localhost Socket
-def on_message(message):
-    if DEBUG: print "Message: %s" % message.strip()
-    try:
-        j = json.loads(message)
-    except ValueError:
-        print "Error: Improperly formatted message"
-    try:
-        if j['type'] == 'update':
-            if DEBUG: print "Now Playing %s by %s" % (j['data']['title'],
-                                                      j['data']['artist'])
-            TrackInfoNamespace.update_track(j['data'])
-    except KeyError:
-        print "Error: Improperly formatted message"
+######## START SERVER ########
 
-def on_connect():
-    print "connected to music player."
-    sock.sendln(json.dumps({'type' : 'info',
-                            'data' : socket.gethostbyname(socket.gethostname())}))
+def transform_message(o):
+    if isinstance(o, basestring):
+        o = o.rsplit(" \"", 2)[0] + "\n"
+        i = o.find(' HTTP/1.1')
+        return o[:i]+o[i+9:]
+    return o
 
-def on_disconnect():
-    print "disconnected from music player."
-    TrackInfoNamespace.clear_track()
+#127.0.0.1 - - [2013-10-27 20:19:41] "GET /index HTTP/1.1" 200 1778 0.031812\n
+def socketioserver_tf_msg(o):
+    if isinstance(o, basestring):
+        end = '\n' * o.endswith('\n')
+        if o.find(' - - ')>=0 and o.find(' HTTP/1.1')>=0:
+            return o.replace(" - - ", " - ", 1) \
+                    .replace(' HTTP/1.1', '', 1) \
+                    .rsplit(" ", 1)[0] \
+                   + end
+    return o
+#127.0.0.1 - [2013-10-27 20:19:41] "GET /index" 200 1778\n
+
+def chop_message(o):
+    o = str(o)
+    end = '\n' * o.endswith('\n')
+    o = "\n".join(map(lambda x: x[:min(80, len(x))], o.splitlines()))
+    return o + end
 
 def run():
     ip_addr = socket.gethostbyname(socket.gethostname())
-    print "connecting to music player..."
-    sock.on_connect(on_connect)
-    sock.on_disconnect(on_disconnect)
-    sock.connect('localhost', SOCK_PORT, on_message)
-    ControlNamespace.attatch_control(sock)
-    server = SocketIOServer(("", 80), app, resource="socket.io")
-    print "running on %s" % ip_addr
-    server.serve_forever()
+    print "Listening on %s:%d" % (ip_addr, 5000 if DEBUG else 80)
+    log = WriteWrapper(sys.stdout, socketioserver_tf_msg)
+    server = SocketIOServer(("", 5000 if DEBUG else 80),
+                            app,
+                            resource="socket.io",
+                            log = log)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        disconnect()
+        print " Server Killed"
+
+def disconnect():
+    playlist.conn.close()
+    library.conn.close()
 
 if __name__ == "__main__":
     run()

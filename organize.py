@@ -25,6 +25,7 @@ PATTERNS = [("music/2ampool", "music/2am"),
 trackFormat = lambda number: "0"*(len(number)==1) + number
 
 def sanitize(string):
+    if string == None: return ""
     string = string.strip()
     string = string.replace("/", "-").replace("\\", "-").replace("*", "-")
     string = string.replace(":", "_").replace("?", "_").replace("|", "_")
@@ -35,7 +36,7 @@ def unicode_to_string(u):
     try:
         return str(u)
     except UnicodeEncodeError:
-        return "".join(map(lambda u: chr(ord(u)), u))
+        return "".join((c if ord(c) < 256 else "_" for c in o))
 
 def get_all_info(filepath):
     ext = os.path.splitext(filepath)[1]
@@ -51,7 +52,7 @@ def get_all_info(filepath):
     artist = get_info(audio, 'artist')
     album = get_info(audio, 'album')
     date = get_info(audio, 'date')
-    tracknumber = get_info(audio, 'tracknumber')
+    tracknumber = get_info(audio, 'tracknumber', '')
     title = get_info(audio, 'title')
     is_compil = get_info(audio, 'compilation') or False
     return (sanitize(artist),
