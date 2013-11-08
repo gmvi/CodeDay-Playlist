@@ -1,0 +1,39 @@
+<html>
+	<head>
+    <script type="text/javascript" src="/static/jquery-1.8.3.min.js"></script>
+		<style type='text/css'>
+			#main
+			{ margin: 50px auto;
+				width: 600px;
+				text-align: center;
+			}
+			#message
+			{ color: red;
+				font-weight: bold;
+			}
+		</style>
+		<script>
+			$(function()
+			{	$('#main input:first').focus();
+			});
+		</script>
+	</head>
+	<body>
+		<div id='main'>
+			<div id='message'>
+				{% if message %}{{ message }}{% endif %}
+			</div>
+			{% if not logged_in %}
+			<form action='/login' method='post'>
+				Admin Password:
+				<input type='password' name='password'>
+				<input type='submit' value='log in'>
+			</form>
+			{% else %}
+			<form action='/logout' method='post'>
+				<input type='submit' value='log out'>
+			</form>
+			{% endif %}
+		</div>
+	</body>
+</html>

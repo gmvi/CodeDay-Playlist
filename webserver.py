@@ -19,14 +19,14 @@ except OperationalError:
     raw_input("[enter to exit]")
     exit()
 ##from util import BroadcastNamespace, Socket
-from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA#, COOKIE_SESSION_KEY
+from settings import DEBUG, SHUTDOWN_KEY, SOCK_PORT, REQUIRED_METADATA, COOKIE_SESSION_KEY
 
 ##if 'idlelib' not in sys.modules:
 ##    monkey.patch_all()
 
 app = Flask(__name__)
 app.debug = DEBUG
-#app.secret_key = COOKIE_SESSION_KEY
+app.secret_key = COOKIE_SESSION_KEY
 library.attach(app)
 playlist.attach(app)
 #users.attach(app)
@@ -60,17 +60,13 @@ def scripts(filename):
 #main view page for the user
 @app.route('/')
 def track_page():
-    song = playlist.get_current_song()
-    if not song:
-        return render_template('track.html',
-                               no_current = True)
-    return render_template('track.html',
-                           title = song.name,
-                           artist = song.track_performer)
+    #rewrite to access playlist controller
+    return render_template('track.html', id=session.get('id'))
 
 #admin view
 @app.route('/admin')
 def admin_page():
+    if not session.get('id') == 'admin': return redirect('/login')
     song = playlist.get_current_song()
     if not song:
         return render_template('admin.html',
@@ -82,6 +78,7 @@ def admin_page():
 #player
 @app.route('/player')
 def player_page():
+    if not session.get('id') == 'admin': return redirect('/login')
     return render_template('player.html')
 #### uploading tracks
 
@@ -99,6 +96,8 @@ def record_and_save(f):
 #/upload route
 @app.route('/upload', methods=['POST'])
 def upload():
+    if not session.get('id'):
+        return redirect('/')
     #get the uploaded file or redirect to http://host/
     if 'file' in request.files:
         f = request.files['file']
@@ -159,6 +158,8 @@ def check_key(key, filename):
 #edit metadata of an uploaded song
 @app.route('/edit_upload')
 def edit_upload():
+    if not session.get('id'):
+        return redirect('/')
     key = request.args.get("key")
     filename = request.args.get("filename")
     if not key or not filename or check_key(key, filename) != 0:
@@ -171,6 +172,8 @@ def edit_upload():
 
 @app.route('/edit_upload', methods=['POST'])
 def edit_upload():
+    if not session.get('id'):
+        return redirect('/')
     key = request.form["key"]
     filename = request.form["filename"]
     if check_key(key, filename) != 0:
@@ -183,6 +186,26 @@ def edit_upload():
                        title = request.form['title'])
     send_upload(key)
     return redirect("/")
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    message = None
+    logged_in = False
+    if request.method == 'POST':
+        if request.form['password'] == 'banana':
+            session['id'] = 'admin'
+            return redirect('/admin')
+        else:
+            message = "Bad password :("
+    if session.get('id') == 'admin':
+        message = "You are already logged in as admin :)"
+        logged_in = True
+    return render_template('login.html', message = message, logged_in = logged_in)
+
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    del session['id']
+    return redirect('/')
 
 
 ######## START SERVER ########

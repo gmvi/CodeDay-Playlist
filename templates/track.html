@@ -4,11 +4,13 @@
     <style>
     body
     { text-align: center;
+      padding-top: 20px;
     }
     .hidden
     { width: 0px;
       height: 0px;
       overflow: hidden;
+      display: none;
     }
     </style>
     <script type="text/javascript" src="/static/socket.io.min.js"></script>
@@ -16,7 +18,7 @@
     <script type="text/javascript" src="/static/trackUpdate.js"></script>
     <script type="text/javascript">
     var trackUpdateDefaultName = "None"
-    $(document).ready(function(event)
+    $(function(event)
     { $('#file').change(function(event)
       { $('#form').submit();
       });
@@ -24,19 +26,23 @@
     </script>
   </head>
   <body>
+    {% if id %}
     <div class=hidden>
       <form id="form" action="upload" method="post" enctype="multipart/form-data">
         <input id="file" name="file" type="file">
       </form>
     </div>
+    {% endif %}
     <div id="info">
       <h1 id="track-heading">Current Track</h1>
       <br/>
       <h2 id="track-title">{{title}}</h2>
       <h3 id="track-artist">{{artist}}</h3>
     </div>
+    {% if id %}
     <div id="buttons">
       <button id="upload-button" onclick="$('#file').click();">upload</button>
     </div>
+    {% endif %}
   </body>
 </html>

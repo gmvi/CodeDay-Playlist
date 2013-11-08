@@ -639,7 +639,7 @@ def rebuild_endpoint():
 def run():
     app = Flask(__name__)
     app.debug = DEBUG
-    #app.secret_key = COOKIE_SESSION_KEY
+    app.secret_key = COOKIE_SESSION_KEY
     attach(app)
     app.run(use_reloader = False)
 
