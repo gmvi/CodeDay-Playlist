@@ -1,0 +1,144 @@
+#info, #controls, #playlist-container
+{ text-align: center;
+  margin: 0px auto 30px;
+}
+#info
+{ font-weight: bold;
+  font-size: 28px;
+  height: 66px;
+}
+
+/* controls */
+#controls div {
+margin-bottom: 10px;
+}
+#seek
+{ width: 450px;
+}
+.timelabel
+{ font-weight: bold;
+  width: 40px;
+}
+.sliderlabel
+{ display: inline-block;
+  margin-top: 5px;
+}
+input[type="range"].labeled
+{ height: 10px;
+}
+#play, #pause
+{ width: 48px;
+  height: 48px;
+  font-size: 26px;
+  margin: 2px;
+}
+#stop
+{ padding: 1px 4px;
+}
+
+/* playlist */
+#playlist-container
+{ width: 500px;
+}
+#playlist-title
+{ font-size: 22px;
+}
+#playlist
+{ font-size: 18px;
+  margin-top:10px;
+  position: relative;
+}
+.sort-boundary
+{ position: absolute;
+  left: 3px;
+  right: -3px;
+  top: -3px;
+  bottom: -3px;
+}
+.sort-placeholder
+{ position: relative;
+  left: -40px;
+  padding-left: 40px;
+  border: 1px solid;
+  margin-bottom: -1px;
+  height: 25px;
+  width: 458px;
+  background-color: f5f5f5;
+}
+.entry-wrapper
+{ position: relative;
+  left: -40px;
+  padding-left: 40px;
+  border: 1px solid;
+  margin-bottom: -1px;
+  height: 25px;
+  width: 458px;
+  background-color: e5e5e5;
+}
+.entry-wrapper.ui-sortable-helper
+{ background-color: d5d5d5;
+}
+.entry
+{ background-color: inherit;
+}
+.handle
+{ position: absolute;
+  width: 40px;
+  top: 0px;
+  bottom: 0px;
+  left: 0px;
+  z-index: 2;
+  background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAALAQMAAABvd86vAAAAAXNSR0IArs4c6QAAAAZQTFRF////AAAAVcLTfgAAAAF0Uk5TAEDm2GYAAAABYktHRACIBR1IAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3QoDDgo2BbpCBwAAACFJREFUCB0BFgDp/wDAAMAAAADAAMAAAADAAMAAAADAAMBCFgYBNTzIHgAAAABJRU5ErkJggg==);
+  background-repeat: no-repeat;
+  cursor: ns-resize;
+  background-position: 2px;
+}
+.play-overlay
+{ position: absolute;
+  visibility: hidden;
+  width: 40px;
+  top: 0px;
+  bottom: 0px;
+  left: 0px;
+  z-index: 1;
+  background-color: inherit;
+}
+.entry.playing > .play-overlay
+{ visibility: visible;
+}
+.entry-main
+{ position: absolute;
+  right: 40px;
+  left: 40px;
+  top: 0px;
+  bottom: 0px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.entry-title
+{
+}
+.entry-info-start
+{ position: absolute;
+  left: 40px;
+  top: 0px;
+  bottom: 0px;
+  width: 40px;
+  z-index: 1px;
+}
+.entry-info-end
+{ position: absolute;
+  right: 0px;
+  top: 0px;
+  bottom: 0px;
+  width: 80px;
+}
+.center
+{ text-align: center;
+}
+.right
+{ text-align: right;
+}
+.left
+{ text-align: left;
+}

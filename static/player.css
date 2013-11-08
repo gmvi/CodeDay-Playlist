@@ -1,0 +1,47 @@
+#info, #controls, #playlist-container
+{ text-align: center;
+  margin: 0px auto 30px;
+}
+#info
+{ font-weight: bold;
+  font-size: 28px;
+  height: 66px;
+}
+
+/* controls */
+#controls div {
+margin-bottom: 10px;
+}
+#seek
+{ width: 450px;
+}
+.timelabel
+{ font-weight: bold;
+  width: 40px;
+}
+.sliderlabel
+{ display: inline-block;
+  margin-top: 5px;
+}
+input[type="range"].labeled
+{ height: 10px;
+}
+#play, #pause
+{ display: inline-block;
+  padding: 9 9;width: 28px;
+  height: 28px;
+  font-size: 26px;
+  margin: 2px;
+  border: 1px solid darkgray;
+  background-color: lightgray;
+}
+
+.center
+{ text-align: center;
+}
+.right
+{ text-align: right;
+}
+.left
+{ text-align: left;
+}
